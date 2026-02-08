@@ -1,0 +1,35 @@
+# .NET
+bin/
+obj/
+*.user
+*.suo
+*.cache
+.vs/
+
+# C++ Build
+build/
+cmake-build-*/
+*.pdb
+*.ilk
+*.exp
+*.lib
+
+# vcpkg
+vcpkg_installed/
+
+# IDE
+.idea/
+*.swp
+*~
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Test results
+TestResults/
+*.trx
+
+# Logs
+logs/
+*.log

@@ -1,0 +1,12 @@
+{
+    "$schema": "https://raw.githubusercontent.com/microsoft/vcpkg-tool/main/docs/vcpkg.schema.json",
+    "name": "aum-engine",
+    "version": "1.0.0",
+    "description": "Auto Unit Matcher C++ Engine - 3D descriptor extraction and matching",
+    "dependencies": [
+        "pcl",
+        "faiss",
+        "sqlite3",
+        "gtest"
+    ]
+}

@@ -1,0 +1,76 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    
+    <!-- Color Palette -->
+    <Color x:Key="PrimaryColor">#2563EB</Color>          <!-- Blue -->
+    <Color x:Key="PrimaryDarkColor">#1D4ED8</Color>
+    <Color x:Key="SecondaryColor">#10B981</Color>        <!-- Green -->
+    <Color x:Key="ErrorColor">#EF4444</Color>            <!-- Red -->
+    <Color x:Key="WarningColor">#F59E0B</Color>          <!-- Amber -->
+    <Color x:Key="BackgroundColor">#F8FAFC</Color>       <!-- Light gray -->
+    <Color x:Key="SurfaceColor">#FFFFFF</Color>          <!-- White -->
+    <Color x:Key="TextPrimaryColor">#1E293B</Color>      <!-- Dark slate -->
+    <Color x:Key="TextSecondaryColor">#64748B</Color>    <!-- Slate -->
+    
+    <!-- Brushes -->
+    <SolidColorBrush x:Key="PrimaryBrush" Color="{StaticResource PrimaryColor}" />
+    <SolidColorBrush x:Key="PrimaryDarkBrush" Color="{StaticResource PrimaryDarkColor}" />
+    <SolidColorBrush x:Key="SecondaryBrush" Color="{StaticResource SecondaryColor}" />
+    <SolidColorBrush x:Key="ErrorBrush" Color="{StaticResource ErrorColor}" />
+    <SolidColorBrush x:Key="WarningBrush" Color="{StaticResource WarningColor}" />
+    <SolidColorBrush x:Key="BackgroundBrush" Color="{StaticResource BackgroundColor}" />
+    <SolidColorBrush x:Key="SurfaceBrush" Color="{StaticResource SurfaceColor}" />
+    <SolidColorBrush x:Key="TextPrimaryBrush" Color="{StaticResource TextPrimaryColor}" />
+    <SolidColorBrush x:Key="TextSecondaryBrush" Color="{StaticResource TextSecondaryColor}" />
+    
+    <!-- Confidence Level Brushes -->
+    <SolidColorBrush x:Key="HighConfidenceBrush" Color="#10B981" />   <!-- Green for >=90% -->
+    <SolidColorBrush x:Key="MediumConfidenceBrush" Color="#F59E0B" /> <!-- Amber for 80-90% -->
+    <SolidColorBrush x:Key="LowConfidenceBrush" Color="#EF4444" />    <!-- Red for <80% -->
+    
+    <!-- Default Button Style -->
+    <Style TargetType="Button">
+        <Setter Property="Background" Value="{StaticResource PrimaryBrush}" />
+        <Setter Property="Foreground" Value="White" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="Padding" Value="16,8" />
+        <Setter Property="FontSize" Value="14" />
+        <Setter Property="Cursor" Value="Hand" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Button">
+                    <Border Background="{TemplateBinding Background}"
+                            CornerRadius="4"
+                            Padding="{TemplateBinding Padding}">
+                        <ContentPresenter HorizontalAlignment="Center" 
+                                          VerticalAlignment="Center" />
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter Property="Background" Value="{StaticResource PrimaryDarkBrush}" />
+                        </Trigger>
+                        <Trigger Property="IsEnabled" Value="False">
+                            <Setter Property="Opacity" Value="0.5" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+    
+    <!-- Card Style (for result cards) -->
+    <Style x:Key="CardStyle" TargetType="Border">
+        <Setter Property="Background" Value="{StaticResource SurfaceBrush}" />
+        <Setter Property="CornerRadius" Value="8" />
+        <Setter Property="Padding" Value="16" />
+        <Setter Property="Effect">
+            <Setter.Value>
+                <DropShadowEffect BlurRadius="10" 
+                                  ShadowDepth="2" 
+                                  Opacity="0.1" 
+                                  Color="Black" />
+            </Setter.Value>
+        </Setter>
+    </Style>
+    
+</ResourceDictionary>

@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>AUM.Core</RootNamespace>
+    <AssemblyName>AUM.Core</AssemblyName>
+    <Version>1.0.0</Version>
+    <Authors>The Dental Alliance</Authors>
+    <Description>Auto Unit Matcher Core Library - Business logic and engine integration</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="8.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="8.0.0" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="8.0.0" />
+  </ItemGroup>
+
+  <!-- Copy native DLL to output on build -->
+  <ItemGroup>
+    <None Include="..\AUM.Engine\build\bin\Release\AUM.Engine.dll" 
+          CopyToOutputDirectory="PreserveNewest" 
+          Condition="Exists('..\AUM.Engine\build\bin\Release\AUM.Engine.dll')" />
+    <None Include="..\AUM.Engine\build\bin\Debug\AUM.Engine.dll" 
+          CopyToOutputDirectory="PreserveNewest" 
+          Condition="Exists('..\AUM.Engine\build\bin\Debug\AUM.Engine.dll')" />
+  </ItemGroup>
+
+</Project>
