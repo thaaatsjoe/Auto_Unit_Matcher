@@ -74,6 +74,7 @@ if(BUILD_TESTS)
     target_link_libraries(AUM.Engine.Tests 
         PRIVATE 
             AUM.Engine
+            ${PCL_LIBRARIES}
             GTest::gtest 
             GTest::gtest_main
     )

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "exports.h"
 #include "descriptor.h"
 #include <faiss/IndexFlat.h>
 #include <faiss/IndexIDMap.h>
@@ -11,7 +12,7 @@ namespace aum {
 /**
  * Match result from similarity search.
  */
-struct MatchResult {
+struct AUM_API MatchResult {
     int64_t id;           // Database ID
     float distance;       // L2 distance (lower = better)
     float confidence;     // Confidence percentage (0-100)
@@ -20,7 +21,7 @@ struct MatchResult {
 /**
  * FAISS-based similarity search index.
  */
-class MatchingIndex {
+class AUM_API MatchingIndex {
 public:
     MatchingIndex();
     ~MatchingIndex();

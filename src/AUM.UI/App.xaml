@@ -1,12 +1,19 @@
 <Application x:Class="AUM.UI.App"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             StartupUri="Views/MainWindow.xaml">
+             xmlns:converters="clr-namespace:AUM.UI.Converters">
     <Application.Resources>
         <ResourceDictionary>
             <ResourceDictionary.MergedDictionaries>
                 <ResourceDictionary Source="Styles/Theme.xaml" />
             </ResourceDictionary.MergedDictionaries>
+            
+            <!-- Converters -->
+            <converters:NotNullToBoolConverter x:Key="NotNullToBoolConverter" />
+            <converters:NotNullToVisibilityConverter x:Key="NotNullToVisibilityConverter" />
+            <converters:ZeroToVisibilityConverter x:Key="ZeroToVisibilityConverter" />
+            <converters:InverseBoolConverter x:Key="InverseBoolConverter" />
+            <converters:InverseVisibilityConverter x:Key="InverseVisibilityConverter" />
         </ResourceDictionary>
     </Application.Resources>
 </Application>

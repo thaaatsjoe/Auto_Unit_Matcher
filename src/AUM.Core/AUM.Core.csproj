@@ -11,6 +11,11 @@
     <Description>Auto Unit Matcher Core Library - Business logic and engine integration</Description>
   </PropertyGroup>
 
+  <!-- Allow test project to access internal types -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="AUM.Tests" />
+  </ItemGroup>
+
   <ItemGroup>
     <PackageReference Include="Microsoft.Data.Sqlite" Version="8.0.0" />
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="8.0.0" />

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "exports.h"
 #include <pcl/point_types.h>
 #include <pcl/point_cloud.h>
 #include <pcl/features/fpfh.h>
@@ -17,7 +18,7 @@ using FPFHCloudPtr = pcl::PointCloud<FPFHSignature>::Ptr;
 /**
  * Descriptor extraction configuration.
  */
-struct DescriptorConfig {
+struct AUM_API DescriptorConfig {
     float voxelSize = 0.5f;           // Downsampling voxel size (mm)
     float normalRadius = 2.0f;        // Normal estimation radius (mm)
     float fpfhRadius = 5.0f;          // FPFH search radius (mm)
@@ -27,7 +28,7 @@ struct DescriptorConfig {
 /**
  * Container for extracted descriptors.
  */
-class Descriptor {
+class AUM_API Descriptor {
 public:
     Descriptor() = default;
     explicit Descriptor(FPFHCloudPtr features);
@@ -65,7 +66,7 @@ private:
 /**
  * FPFH descriptor extractor.
  */
-class DescriptorExtractor {
+class AUM_API DescriptorExtractor {
 public:
     explicit DescriptorExtractor(const DescriptorConfig& config = {});
     

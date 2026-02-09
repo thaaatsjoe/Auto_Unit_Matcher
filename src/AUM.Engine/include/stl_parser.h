@@ -1,5 +1,6 @@
 #pragma once
 
+#include "exports.h"
 #include <pcl/point_types.h>
 #include <pcl/point_cloud.h>
 #include <string>
@@ -13,7 +14,7 @@ using PointCloudPtr = pcl::PointCloud<pcl::PointXYZ>::Ptr;
  * Parse an STL file and return a point cloud.
  * Supports both ASCII and binary STL formats.
  */
-class STLParser {
+class AUM_API STLParser {
 public:
     /**
      * Load an STL file into a point cloud.

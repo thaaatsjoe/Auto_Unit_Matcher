@@ -3,11 +3,23 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:vm="clr-namespace:AUM.UI.ViewModels"
         mc:Ignorable="d"
+        d:DataContext="{d:DesignInstance Type=vm:MainViewModel}"
         Title="Auto Unit Matcher" 
         Height="800" Width="1200"
         WindowState="Maximized"
         Background="{DynamicResource BackgroundBrush}">
+    
+    <!-- Keyboard Shortcuts per PRD -->
+    <Window.InputBindings>
+        <KeyBinding Key="Enter" Command="{Binding ConfirmMatchCommand}" />
+        <KeyBinding Key="Escape" Command="{Binding RejectMatchCommand}" />
+        <KeyBinding Key="S" Command="{Binding OpenSettingsCommand}" />
+        <KeyBinding Key="M" Command="{Binding OpenManualLookupCommand}" />
+        <KeyBinding Key="H" Command="{Binding ShowHelpCommand}" />
+        <KeyBinding Key="OemQuestion" Command="{Binding ShowHelpCommand}" />
+    </Window.InputBindings>
     
     <Grid>
         <Grid.RowDefinitions>
@@ -39,8 +51,7 @@
                     <TextBlock Text="Operator: " 
                                Foreground="White" 
                                Opacity="0.8" />
-                    <TextBlock x:Name="OperatorName" 
-                               Text="Not logged in" 
+                    <TextBlock Text="{Binding OperatorName}" 
                                Foreground="White" 
                                FontWeight="SemiBold" />
                 </StackPanel>
@@ -49,11 +60,127 @@
         
         <!-- Main Content Area -->
         <Grid Grid.Row="1" Margin="16">
-            <TextBlock Text="Phase 0 Scaffolding Complete - UI will be built in Phase 5"
-                       HorizontalAlignment="Center"
-                       VerticalAlignment="Center"
-                       FontSize="20"
-                       Foreground="{DynamicResource TextSecondaryBrush}" />
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="2*" />  <!-- 3D Viewer -->
+                <ColumnDefinition Width="16" />  <!-- Spacing -->
+                <ColumnDefinition Width="*" />   <!-- Match Results -->
+            </Grid.ColumnDefinitions>
+            
+            <!-- Left: 3D Viewer Area -->
+            <Border Grid.Column="0" 
+                    Background="{DynamicResource SurfaceBrush}" 
+                    CornerRadius="8">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="*" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+                    
+                    <!-- 3D Viewport Placeholder -->
+                    <Border Grid.Row="0" Margin="8">
+                        <TextBlock Text="3D STL Viewer&#x0a;(HelixToolkit - Phase 5b)"
+                                   HorizontalAlignment="Center"
+                                   VerticalAlignment="Center"
+                                   TextAlignment="Center"
+                                   FontSize="18"
+                                   Foreground="{DynamicResource TextSecondaryBrush}" />
+                    </Border>
+                    
+                    <!-- Action Buttons -->
+                    <StackPanel Grid.Row="1" 
+                                Orientation="Horizontal" 
+                                HorizontalAlignment="Center"
+                                Margin="0,0,0,16">
+                        <Button Content="CONFIRM" 
+                                Command="{Binding ConfirmMatchCommand}"
+                                Width="120" Height="40"
+                                Margin="8,0"
+                                FontWeight="Bold"
+                                Background="#4CAF50"
+                                Foreground="White"
+                                IsEnabled="{Binding SelectedMatch, Converter={StaticResource NotNullToBoolConverter}}" />
+                        <Button Content="REJECT" 
+                                Command="{Binding RejectMatchCommand}"
+                                Width="120" Height="40"
+                                Margin="8,0"
+                                FontWeight="Bold"
+                                Background="#F44336"
+                                Foreground="White"
+                                IsEnabled="{Binding SelectedMatch, Converter={StaticResource NotNullToBoolConverter}}" />
+                    </StackPanel>
+                </Grid>
+            </Border>
+            
+            <!-- Right: Match Results Panel -->
+            <Border Grid.Column="2" 
+                    Background="{DynamicResource SurfaceBrush}" 
+                    CornerRadius="8"
+                    Padding="16">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+                    
+                    <!-- Header -->
+                    <TextBlock Grid.Row="0" 
+                               Text="TOP 5 MATCHES" 
+                               FontSize="16" 
+                               FontWeight="Bold"
+                               Foreground="{DynamicResource TextPrimaryBrush}"
+                               Margin="0,0,0,16" />
+                    
+                    <!-- Match List -->
+                    <ListBox Grid.Row="1"
+                             ItemsSource="{Binding MatchResults}"
+                             SelectedItem="{Binding SelectedMatch}"
+                             Background="Transparent"
+                             BorderThickness="0">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate>
+                                <Border Padding="8" Margin="0,2">
+                                    <StackPanel>
+                                        <TextBlock Text="{Binding DisplayText}" 
+                                                   FontSize="14"
+                                                   FontWeight="SemiBold" />
+                                    </StackPanel>
+                                </Border>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                    
+                    <!-- Selected Match Details -->
+                    <Border Grid.Row="2" 
+                            Margin="0,16,0,0"
+                            Padding="8"
+                            Background="{DynamicResource BackgroundBrush}"
+                            CornerRadius="4"
+                            Visibility="{Binding SelectedMatch, Converter={StaticResource NotNullToVisibilityConverter}}">
+                        <StackPanel>
+                            <TextBlock Text="Selected Match" 
+                                       FontWeight="Bold" 
+                                       Margin="0,0,0,8" />
+                            <TextBlock>
+                                <Run Text="Case: " />
+                                <Run Text="{Binding SelectedMatch.CaseId}" FontWeight="SemiBold" />
+                            </TextBlock>
+                            <TextBlock>
+                                <Run Text="Confidence: " />
+                                <Run Text="{Binding SelectedMatch.Confidence, StringFormat='{}{0:F1}%'}" FontWeight="SemiBold" />
+                            </TextBlock>
+                        </StackPanel>
+                    </Border>
+                    
+                    <!-- Empty State -->
+                    <TextBlock Grid.Row="1"
+                               Text="Awaiting scan..."
+                               HorizontalAlignment="Center"
+                               VerticalAlignment="Center"
+                               Foreground="{DynamicResource TextSecondaryBrush}"
+                               Visibility="{Binding MatchResults.Count, Converter={StaticResource ZeroToVisibilityConverter}}" />
+                </Grid>
+            </Border>
         </Grid>
         
         <!-- Status Bar -->
@@ -67,13 +194,16 @@
                     <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
                 
-                <TextBlock Text="Ready" 
+                <TextBlock Text="{Binding StatusText}" 
                            Foreground="{DynamicResource TextSecondaryBrush}" />
                 
                 <TextBlock Grid.Column="1" 
-                           Text="Database: 0 units" 
                            Foreground="{DynamicResource TextSecondaryBrush}" 
-                           Margin="16,0" />
+                           Margin="16,0">
+                    <Run Text="Database: " />
+                    <Run Text="{Binding UnitCount}" />
+                    <Run Text=" units" />
+                </TextBlock>
                 
                 <TextBlock Grid.Column="2" 
                            Text="v1.0.0" 

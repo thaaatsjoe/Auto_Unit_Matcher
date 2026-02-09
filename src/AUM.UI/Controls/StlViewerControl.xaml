@@ -1,0 +1,46 @@
+<UserControl x:Class="AUM.UI.Controls.StlViewerControl"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:hx="clr-namespace:HelixToolkit.Wpf;assembly=HelixToolkit.Wpf"
+             mc:Ignorable="d"
+             d:DesignHeight="400" d:DesignWidth="600"
+             Background="#1E1E1E">
+    
+    <Grid>
+        <!-- 3D Viewport using standard HelixToolkit.Wpf -->
+        <hx:HelixViewport3D
+            x:Name="Viewport"
+            ZoomExtentsWhenLoaded="True"
+            ShowCoordinateSystem="True"
+            Background="#1E1E1E">
+            
+            <!-- Lighting -->
+            <hx:DefaultLights/>
+            
+            <!-- Model Container - bind to Model property -->
+            <ModelVisual3D Content="{Binding Model}" />
+            
+        </hx:HelixViewport3D>
+        
+        <!-- Loading overlay -->
+        <Border Background="#80000000"
+                Visibility="{Binding IsLoading, Converter={StaticResource NotNullToVisibilityConverter}}">
+            <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
+                <TextBlock Text="Loading..." 
+                           Foreground="White" 
+                           FontSize="18"
+                           HorizontalAlignment="Center" />
+            </StackPanel>
+        </Border>
+        
+        <!-- Empty state -->
+        <TextBlock Text="No model loaded"
+                   Foreground="#666666"
+                   FontSize="16"
+                   HorizontalAlignment="Center"
+                   VerticalAlignment="Center"
+                   Visibility="{Binding HasModel, Converter={StaticResource InverseVisibilityConverter}}" />
+    </Grid>
+</UserControl>
