@@ -57,6 +57,33 @@ public class SessionService : ISessionService, IDisposable
         return true;
     }
     
+    public async Task<bool> CreateAccountAsync(string employeeNumber, string employeeName)
+    {
+        if (string.IsNullOrWhiteSpace(employeeNumber))
+            return false;
+        if (string.IsNullOrWhiteSpace(employeeName))
+            employeeName = $"User {employeeNumber}";
+        
+        // Check if already exists
+        var existing = await _userRepository.GetByEmployeeNumberAsync(employeeNumber);
+        if (existing != null)
+            return false;
+        
+        // Create new user
+        var user = new User
+        {
+            EmployeeNumber = employeeNumber,
+            EmployeeName = employeeName,
+            IsActive = true,
+            CreatedAt = DateTime.UtcNow
+        };
+        
+        await _userRepository.AddAsync(user);
+        
+        // Auto-login after creation
+        return await LoginAsync(employeeNumber);
+    }
+    
     public void Logout()
     {
         if (CurrentUser != null)

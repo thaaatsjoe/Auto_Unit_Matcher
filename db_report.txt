@@ -1,0 +1,17 @@
+Checking database: C:\Users\Joseph.Lucio\AppData\Local\AUM\fingerprints.db
+Database exists: True
+Database size: 24.64 MB
+
+Total units in database: 144
+Units with actual descriptor data: 144
+
+Sample of first 5 units:
+ID | Case ID | Descriptor Size | Has Data
+---|---------|-----------------|----------
+1 | 2025-105555-W2704 A3 | 142828 bytes | YES
+2 | 2025-131594-W2267 A2 | 170020 bytes | YES
+3 | 2025-136558 C2 | 171736 bytes | YES
+4 | 2025-136558 C2 | 243544 bytes | YES
+5 | 2026-10094-G3158 B1 | 228100 bytes | YES
+
+Average descriptor size: 177478.92 bytes

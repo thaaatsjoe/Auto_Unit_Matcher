@@ -22,14 +22,30 @@
     <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="8.0.0" />
   </ItemGroup>
 
-  <!-- Copy native DLL to output on build -->
+  <!-- Copy native DLL and dependencies to output on build -->
   <ItemGroup>
-    <None Include="..\AUM.Engine\build\bin\Release\AUM.Engine.dll" 
+    <!-- Main engine DLL -->
+    <None Include="../AUM.Engine/build/Release/AUM.Engine.dll" 
           CopyToOutputDirectory="PreserveNewest" 
-          Condition="Exists('..\AUM.Engine\build\bin\Release\AUM.Engine.dll')" />
-    <None Include="..\AUM.Engine\build\bin\Debug\AUM.Engine.dll" 
+          Condition="Exists('../AUM.Engine/build/Release/AUM.Engine.dll')" />
+    
+    <!-- PCL dependencies -->
+    <None Include="../AUM.Engine/build/Release/pcl_*.dll" 
+          CopyToOutputDirectory="PreserveNewest" />
+    
+    <!-- FAISS dependency -->
+    <None Include="../AUM.Engine/build/Release/faiss.dll" 
           CopyToOutputDirectory="PreserveNewest" 
-          Condition="Exists('..\AUM.Engine\build\bin\Debug\AUM.Engine.dll')" />
+          Condition="Exists('../AUM.Engine/build/Release/faiss.dll')" />
+    
+    <!-- Other dependencies (BLAS, etc.) -->
+    <None Include="../AUM.Engine/build/Release/*.dll" 
+          CopyToOutputDirectory="PreserveNewest" />
+    
+    <!-- Migration SQL files -->
+    <None Include="Data/Migrations/*.sql" 
+          CopyToOutputDirectory="PreserveNewest" 
+          Link="Data/Migrations/%(Filename)%(Extension)" />
   </ItemGroup>
 
 </Project>

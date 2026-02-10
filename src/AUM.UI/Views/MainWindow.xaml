@@ -4,6 +4,7 @@
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:vm="clr-namespace:AUM.UI.ViewModels"
+        xmlns:controls="clr-namespace:AUM.UI.Controls"
         mc:Ignorable="d"
         d:DataContext="{d:DesignInstance Type=vm:MainViewModel}"
         Title="Auto Unit Matcher" 
@@ -76,15 +77,10 @@
                         <RowDefinition Height="Auto" />
                     </Grid.RowDefinitions>
                     
-                    <!-- 3D Viewport Placeholder -->
-                    <Border Grid.Row="0" Margin="8">
-                        <TextBlock Text="3D STL Viewer&#x0a;(HelixToolkit - Phase 5b)"
-                                   HorizontalAlignment="Center"
-                                   VerticalAlignment="Center"
-                                   TextAlignment="Center"
-                                   FontSize="18"
-                                   Foreground="{DynamicResource TextSecondaryBrush}" />
-                    </Border>
+                    <!-- 3D Viewer Control -->
+                    <controls:StlViewerControl Grid.Row="0" 
+                                               DataContext="{Binding StlViewerViewModel}"
+                                               Margin="8"/>
                     
                     <!-- Action Buttons -->
                     <StackPanel Grid.Row="1" 
@@ -107,6 +103,15 @@
                                 Background="#F44336"
                                 Foreground="White"
                                 IsEnabled="{Binding SelectedMatch, Converter={StaticResource NotNullToBoolConverter}}" />
+                        <!-- Testing button -->
+                        <Button Content="LOAD TEST STL" 
+                                Command="{Binding LoadTestStlCommand}"
+                                Width="140" Height="40"
+                                Margin="16,0,8,0"
+                                FontWeight="Bold"
+                                Background="#2196F3"
+                                Foreground="White"
+                                ToolTip="Load an STL file for testing (Development)" />
                     </StackPanel>
                 </Grid>
             </Border>

@@ -7,7 +7,7 @@
         mc:Ignorable="d"
         d:DataContext="{d:DesignInstance Type=vm:LoginViewModel}"
         Title="Auto Unit Matcher - Login" 
-        Height="350" Width="450"
+        Height="500" Width="450"
         WindowStartupLocation="CenterScreen"
         WindowStyle="None"
         ResizeMode="NoResize"
@@ -47,9 +47,30 @@
                     </TextBox.InputBindings>
                 </TextBox>
                 
+                <TextBlock Text="Full Name (for new accounts):" 
+                           Foreground="{DynamicResource TextSecondaryBrush}"
+                           Margin="0,16,0,8" />
+                
+                <TextBox Text="{Binding EmployeeName, UpdateSourceTrigger=PropertyChanged}"
+                         FontSize="18"
+                         Padding="12,8"
+                         MaxLength="100">
+                    <TextBox.InputBindings>
+                        <KeyBinding Key="Enter" Command="{Binding CreateAccountCommand}" />
+                    </TextBox.InputBindings>
+                </TextBox>
+                
                 <Button Content="LOG IN"
                         Command="{Binding LoginCommand}"
-                        Margin="0,24,0,0"
+                        Margin="0,24,0,8"
+                        Height="44"
+                        FontSize="16"
+                        FontWeight="Bold"
+                        IsEnabled="{Binding IsLoggingIn, Converter={StaticResource InverseBoolConverter}}" />
+                
+                <Button Content="CREATE ACCOUNT"
+                        Command="{Binding CreateAccountCommand}"
+                        Margin="0,0,0,0"
                         Height="44"
                         FontSize="16"
                         FontWeight="Bold"

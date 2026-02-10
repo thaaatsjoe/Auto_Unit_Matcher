@@ -75,6 +75,9 @@ public partial class StlViewerViewModel : ObservableObject
         
         if (model == null)
             throw new InvalidOperationException("Failed to load STL file");
+            
+        // Freeze to allow cross-thread access (Must create DependencySource on same Thread...)
+        model.Freeze();
         
         return model;
     }

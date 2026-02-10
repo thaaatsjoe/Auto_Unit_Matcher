@@ -107,13 +107,27 @@ public class DatabaseContext : IDisposable
         command.CommandText = schemaSql;
         await command.ExecuteNonQueryAsync();
         
+        _logger?.LogInformation("Database schema initialized successfully.");
+        
+        // Run seed data
+        var seedPath = Path.Combine(
+            AppDomain.CurrentDomain.BaseDirectory,
+            "Data", "Migrations", "SeedData.sql");
+            
+        if (File.Exists(seedPath))
+        {
+            _logger?.LogInformation("Running seed data...");
+            var seedSql = await File.ReadAllTextAsync(seedPath);
+            command.CommandText = seedSql;
+            await command.ExecuteNonQueryAsync();
+            _logger?.LogInformation("Seed data executed successfully.");
+        }
+        
         // Don't dispose connection for in-memory databases
         if (!_isInMemory)
         {
             await connection.DisposeAsync();
         }
-        
-        _logger?.LogInformation("Database schema initialized successfully.");
     }
 
     /// <summary>

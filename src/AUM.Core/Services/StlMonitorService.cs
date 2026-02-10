@@ -45,6 +45,9 @@ public class StlMonitorService : IStlMonitorService
         _watcher.EnableRaisingEvents = true;
         
         _logger?.LogInformation("Started monitoring {Path} for STL files", rootPath);
+        
+        // Process existing files in the directory
+        ScanExistingFiles(rootPath);
     }
     
     /// <inheritdoc/>
@@ -79,6 +82,49 @@ public class StlMonitorService : IStlMonitorService
         catch (Exception ex)
         {
             _logger?.LogError(ex, "Error processing detected file: {Path}", e.FullPath);
+        }
+    }
+    
+    /// <summary>
+    /// Scans the root path for existing STL files and raises FileDetected events for each.
+    /// This processes the initial database population.
+    /// </summary>
+    private void ScanExistingFiles(string rootPath)
+    {
+        try
+        {
+            _logger?.LogInformation("Scanning directory for existing STL files: {Path}", rootPath);
+            
+            var files = Directory.GetFiles(rootPath, "*.stl", SearchOption.AllDirectories);
+            
+            _logger?.LogInformation("Found {Count} existing STL files to process", files.Length);
+            
+            foreach (var filePath in files)
+            {
+                try
+                {
+                    var caseId = ParseCaseId(filePath);
+                    
+                    _logger?.LogDebug("Processing existing file: {Path} (Case: {CaseId})", filePath, caseId);
+                    
+                    // Raise same event as newly created files
+                    FileDetected?.Invoke(this, new StlFileEventArgs
+                    {
+                        FilePath = filePath,
+                        CaseId = caseId
+                    });
+                }
+                catch (Exception ex)
+                {
+                    _logger?.LogError(ex, "Failed to process existing file: {Path}", filePath);
+                }
+            }
+            
+            _logger?.LogInformation("Completed initial scan of existing files");
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogError(ex, "Failed to scan existing files in {Path}", rootPath);
         }
     }
     

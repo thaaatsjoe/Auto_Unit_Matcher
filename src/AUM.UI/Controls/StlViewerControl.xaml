@@ -25,22 +25,31 @@
         </hx:HelixViewport3D>
         
         <!-- Loading overlay -->
-        <Border Background="#80000000"
-                Visibility="{Binding IsLoading, Converter={StaticResource NotNullToVisibilityConverter}}">
+        <Border Background="#CC1E1E1E"
+                Visibility="{Binding IsLoading, Converter={StaticResource BooleanToVisibilityConverter}}">
             <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
-                <TextBlock Text="Loading..." 
+                <TextBlock Text="Loading STL Model..." 
                            Foreground="White" 
                            FontSize="18"
+                           FontWeight="SemiBold"
+                           HorizontalAlignment="Center" />
+                <TextBlock Text="Please wait while geometry is rendered"
+                           Foreground="#AAAAAA"
+                           FontSize="12"
+                           Margin="0,8,0,0"
                            HorizontalAlignment="Center" />
             </StackPanel>
         </Border>
         
         <!-- Empty state -->
-        <TextBlock Text="No model loaded"
-                   Foreground="#666666"
-                   FontSize="16"
-                   HorizontalAlignment="Center"
-                   VerticalAlignment="Center"
-                   Visibility="{Binding HasModel, Converter={StaticResource InverseVisibilityConverter}}" />
+        <Border Background="Transparent"
+                Visibility="{Binding HasModel, Converter={StaticResource InverseVisibilityConverter}}">
+            <TextBlock Text="No STL file currently loaded"
+                       Foreground="#888888"
+                       FontSize="16"
+                       FontStyle="Italic"
+                       HorizontalAlignment="Center"
+                       VerticalAlignment="Center" />
+        </Border>
     </Grid>
 </UserControl>

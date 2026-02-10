@@ -16,6 +16,9 @@ public interface ISessionService
     /// <summary>Attempts to log in with an employee number.</summary>
     Task<bool> LoginAsync(string employeeNumber);
     
+    /// <summary>Creates a new employee account and logs in.</summary>
+    Task<bool> CreateAccountAsync(string employeeNumber, string employeeName);
+    
     /// <summary>Logs out the current user.</summary>
     void Logout();
     

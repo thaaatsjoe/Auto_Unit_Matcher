@@ -37,14 +37,6 @@ public class UnitService : IUnitService
         
         _logger?.LogInformation("Registering unit from {Path} for case {CaseId}", stlPath, caseId);
         
-        // Check if already exists
-        if (await _unitRepository.ExistsAsync(stlPath))
-        {
-            _logger?.LogWarning("Unit already exists for {Path}", stlPath);
-            var existing = await _unitRepository.GetByStlPathAsync(stlPath);
-            return existing!.Id;
-        }
-        
         // Extract descriptor from STL
         byte[] descriptor;
         try
@@ -80,6 +72,12 @@ public class UnitService : IUnitService
     public async Task<Unit?> GetByIdAsync(long id)
     {
         return await _unitRepository.GetByIdAsync(id);
+    }
+    
+    /// <inheritdoc/>
+    public async Task<Unit?> GetByStlPathAsync(string stlPath)
+    {
+        return await _unitRepository.GetByStlPathAsync(stlPath);
     }
     
     /// <inheritdoc/>

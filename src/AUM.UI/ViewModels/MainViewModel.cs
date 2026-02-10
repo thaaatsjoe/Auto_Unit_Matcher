@@ -1,6 +1,8 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using AUM.Core.Services;
+using AUM.Core.Data.Repositories;
+using AUM.UI.Services;
 using System.Collections.ObjectModel;
 
 namespace AUM.UI.ViewModels;
@@ -13,17 +15,31 @@ public partial class MainViewModel : ObservableObject
     private readonly IMatchingService _matchingService;
     private readonly IUnitService _unitService;
     private readonly IAuditService _auditService;
+    private readonly IUnitRepository _unitRepository;
+    private readonly ISessionService _sessionService;
     
     public MainViewModel(
         IMatchingService matchingService,
         IUnitService unitService,
-        IAuditService auditService)
+        IAuditService auditService,
+        StlViewerViewModel stlViewerViewModel,
+        IUnitRepository unitRepository,
+        ISessionService sessionService)
     {
         _matchingService = matchingService;
         _unitService = unitService;
         _auditService = auditService;
+        _unitRepository = unitRepository;
+        _sessionService = sessionService;
+        StlViewerViewModel = stlViewerViewModel;
         
         MatchResults = new ObservableCollection<MatchResultViewModel>();
+        
+        // Initialize operator name from session
+        OperatorName = _sessionService.CurrentUser?.EmployeeName ?? "Not logged in";
+        
+        // Load database stats asynchronously
+        _ = RefreshDatabaseStatsAsync();
     }
     
     // --- Properties ---
@@ -43,10 +59,24 @@ public partial class MainViewModel : ObservableObject
     [ObservableProperty]
     private MatchResultViewModel? _selectedMatch;
     
+    partial void OnSelectedMatchChanged(MatchResultViewModel? value)
+    {
+        if (value != null && !string.IsNullOrEmpty(value.StlPath))
+        {
+            // Update the viewer to show this specific match
+            _ = StlViewerViewModel.LoadModelAsync(value.StlPath);
+        }
+    }
+    
     [ObservableProperty]
     private bool _isLoading;
     
     public ObservableCollection<MatchResultViewModel> MatchResults { get; }
+    
+    /// <summary>
+    /// 3D STL viewer view model for displaying scanned models.
+    /// </summary>
+    public StlViewerViewModel StlViewerViewModel { get; }
     
     // --- Commands ---
     
@@ -107,6 +137,25 @@ public partial class MainViewModel : ObservableObject
             System.Windows.MessageBoxImage.Information);
     }
     
+    [RelayCommand]
+    private async Task LoadTestStlAsync()
+    {
+        var dialog = new Microsoft.Win32.OpenFileDialog
+        {
+            Filter = "STL Files (*.stl)|*.stl|All Files (*.*)|*.*",
+            Title = "Select STL File for Testing"
+        };
+        
+        if (dialog.ShowDialog() == true)
+        {
+            // Trigger matching workflow
+            await SearchForMatchesAsync(dialog.FileName);
+            
+            // Update the viewer to show the loaded file
+            await StlViewerViewModel.LoadModelAsync(dialog.FileName);
+        }
+    }
+    
     // --- Events for dialog requests ---
     public event EventHandler? SettingsRequested;
     public event EventHandler? ManualLookupRequested;
@@ -125,6 +174,10 @@ public partial class MainViewModel : ObservableObject
             CurrentStlPath = stlPath;
             
             var results = await _matchingService.FindMatchesFromStlAsync(stlPath, 5);
+            
+            // Also load into the viewer
+            await StlViewerViewModel.LoadModelAsync(stlPath);
+            
             
             MatchResults.Clear();
             foreach (var result in results)
@@ -155,6 +208,23 @@ public partial class MainViewModel : ObservableObject
         finally
         {
             IsLoading = false;
+        }
+    }
+    
+    /// <summary>
+    /// Refreshes database statistics (unit count).
+    /// </summary>
+    public async Task RefreshDatabaseStatsAsync()
+    {
+        try
+        {
+            var units = await _unitRepository.GetAllAsync();
+            UnitCount = units.Count;
+        }
+        catch (Exception ex)
+        {
+            // Log error but don't fail initialization
+            System.Diagnostics.Debug.WriteLine($"Error loading database stats: {ex.Message}");
         }
     }
 }

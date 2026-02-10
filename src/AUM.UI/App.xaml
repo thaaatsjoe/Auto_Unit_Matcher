@@ -9,6 +9,7 @@
             </ResourceDictionary.MergedDictionaries>
             
             <!-- Converters -->
+            <BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter" />
             <converters:NotNullToBoolConverter x:Key="NotNullToBoolConverter" />
             <converters:NotNullToVisibilityConverter x:Key="NotNullToVisibilityConverter" />
             <converters:ZeroToVisibilityConverter x:Key="ZeroToVisibilityConverter" />
