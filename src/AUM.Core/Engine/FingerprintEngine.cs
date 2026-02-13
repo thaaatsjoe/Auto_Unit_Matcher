@@ -10,17 +10,27 @@ namespace AUM.Core.Engine;
 public sealed class FingerprintEngine : IFingerprintEngine
 {
     private readonly ILogger<FingerprintEngine>? _logger;
+    private CodebookHandle? _codebook;
     private IndexHandle? _index;
     private int _indexCount;
     private bool _disposed;
     
     /// <summary>
-    /// Creates a new FingerprintEngine with an empty index.
+    /// Creates a new FingerprintEngine with a codebook for histogram-based matching.
     /// </summary>
-    public FingerprintEngine(ILogger<FingerprintEngine>? logger = null)
+    /// <param name="codebookPath">Path to the trained codebook binary file.</param>
+    /// <param name="logger">Optional logger.</param>
+    public FingerprintEngine(string codebookPath, ILogger<FingerprintEngine>? logger = null)
     {
         _logger = logger;
-        _index = IndexHandle.Create();
+        
+        // Load codebook
+        _logger?.LogInformation("Loading codebook from {Path}", codebookPath);
+        _codebook = CodebookHandle.Load(codebookPath);
+        _logger?.LogInformation("Codebook loaded with K={K} clusters", _codebook.K);
+        
+        // Create index using codebook
+        _index = IndexHandle.Create(_codebook);
         _indexCount = 0;
         _logger?.LogInformation("FingerprintEngine initialized with version {Version}", Version);
     }
@@ -113,6 +123,29 @@ public sealed class FingerprintEngine : IFingerprintEngine
     }
     
     /// <inheritdoc/>
+    public float CompareDescriptors(byte[] queryDescriptor, byte[] candidateDescriptor)
+    {
+        ThrowIfDisposed();
+        
+        if (queryDescriptor == null || queryDescriptor.Length == 0)
+            throw new ArgumentException("Query descriptor cannot be null or empty", nameof(queryDescriptor));
+        if (candidateDescriptor == null || candidateDescriptor.Length == 0)
+            throw new ArgumentException("Candidate descriptor cannot be null or empty", nameof(candidateDescriptor));
+        
+        using var queryHandle = DescriptorHandle.Deserialize(queryDescriptor);
+        using var candidateHandle = DescriptorHandle.Deserialize(candidateDescriptor);
+        
+        var result = NativeMethods.aum_compare_descriptors(
+            queryHandle.DangerousGetHandle(),
+            candidateHandle.DangerousGetHandle(),
+            out var score);
+        EngineException.ThrowIfError(result);
+        
+        _logger?.LogDebug("Point-to-point comparison score: {Score:F1}%", score);
+        return score;
+    }
+    
+    /// <inheritdoc/>
     public void SaveIndex(string path)
     {
         ThrowIfDisposed();
@@ -134,12 +167,14 @@ public sealed class FingerprintEngine : IFingerprintEngine
         
         if (string.IsNullOrWhiteSpace(path))
             throw new ArgumentException("Path cannot be null or empty", nameof(path));
+        if (_codebook == null || _codebook.IsInvalid)
+            throw new InvalidOperationException("Codebook is not loaded");
         
         _logger?.LogInformation("Loading index from {Path}", path);
         
         // Dispose old index if exists
         _index?.Dispose();
-        _index = IndexHandle.Load(path);
+        _index = IndexHandle.Load(path, _codebook);
         
         // Note: We don't know the count after loading, this would need
         // an additional native function to query index size
@@ -161,6 +196,10 @@ public sealed class FingerprintEngine : IFingerprintEngine
         
         _index?.Dispose();
         _index = null;
+        
+        _codebook?.Dispose();
+        _codebook = null;
+        
         _disposed = true;
         
         _logger?.LogInformation("FingerprintEngine disposed");

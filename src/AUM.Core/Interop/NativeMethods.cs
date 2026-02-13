@@ -83,16 +83,41 @@ internal static class NativeMethods
     public static extern void aum_free_blob(IntPtr blob);
     
     // ============================================================================
+    // Codebook (Bag-of-Words)
+    // ============================================================================
+    
+    /// <summary>
+    /// Load a trained codebook from file.
+    /// </summary>
+    [DllImport(DllName, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
+    public static extern ErrorCode aum_load_codebook(
+        [MarshalAs(UnmanagedType.LPUTF8Str)] string path,
+        out IntPtr outHandle);
+    
+    /// <summary>
+    /// Free a codebook handle.
+    /// </summary>
+    [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+    public static extern void aum_free_codebook(IntPtr handle);
+    
+    /// <summary>
+    /// Get the number of clusters (K) in the codebook.
+    /// </summary>
+    [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+    public static extern ErrorCode aum_codebook_k(IntPtr cb, out int outK);
+    
+    // ============================================================================
     // Matching / FAISS Index
     // ============================================================================
     
     /// <summary>
-    /// Create a new FAISS index for similarity search.
+    /// Create a new FAISS index using a codebook for histogram-based matching.
     /// </summary>
+    /// <param name="codebook">Codebook handle (must remain valid for lifetime of index).</param>
     /// <param name="outHandle">Output index handle (caller must free with aum_free_index).</param>
     /// <returns>AUM_SUCCESS or error code.</returns>
     [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
-    public static extern ErrorCode aum_create_index(out IntPtr outHandle);
+    public static extern ErrorCode aum_create_index(IntPtr codebook, out IntPtr outHandle);
     
     /// <summary>
     /// Add a descriptor to the index.
@@ -140,10 +165,28 @@ internal static class NativeMethods
     /// <summary>
     /// Load index from file.
     /// </summary>
+    /// <param name="path">Path to saved index file.</param>
+    /// <param name="codebook">Codebook handle (needed for subsequent queries).</param>
+    /// <param name="outHandle">Output index handle.</param>
     [DllImport(DllName, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
     public static extern ErrorCode aum_load_index(
         [MarshalAs(UnmanagedType.LPUTF8Str)] string path,
+        IntPtr codebook,
         out IntPtr outHandle);
+    
+    /// <summary>
+    /// Compare two descriptors point-to-point for partial matching.
+    /// Returns a score (0-100%) based on how many query points match candidate points.
+    /// </summary>
+    /// <param name="query">Query descriptor handle (e.g. partial scan).</param>
+    /// <param name="candidate">Candidate descriptor handle (e.g. full model from DB).</param>
+    /// <param name="outScore">Output match score (0-100).</param>
+    /// <returns>AUM_SUCCESS or error code.</returns>
+    [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+    public static extern ErrorCode aum_compare_descriptors(
+        IntPtr query,
+        IntPtr candidate,
+        out float outScore);
     
     /// <summary>
     /// Free an index handle.

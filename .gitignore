@@ -33,3 +33,9 @@ TestResults/
 # Logs
 logs/
 *.log
+
+# Training data (40GB+)
+TRAINING DATA/
+
+# Generated codebook
+codebook.bin

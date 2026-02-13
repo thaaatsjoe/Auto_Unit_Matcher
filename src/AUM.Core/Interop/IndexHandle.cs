@@ -113,11 +113,15 @@ public sealed class IndexHandle : SafeHandle
     }
     
     /// <summary>
-    /// Creates a new empty index.
+    /// Creates a new empty index using a codebook for histogram-based matching.
     /// </summary>
-    public static IndexHandle Create()
+    /// <param name="codebook">Codebook handle (must remain valid for lifetime of index).</param>
+    public static IndexHandle Create(CodebookHandle codebook)
     {
-        var result = NativeMethods.aum_create_index(out var indexPtr);
+        if (codebook == null || codebook.IsInvalid)
+            throw new ArgumentException("Codebook is null or invalid", nameof(codebook));
+        
+        var result = NativeMethods.aum_create_index(codebook.DangerousGetHandle(), out var indexPtr);
         if (result != ErrorCode.Success)
             throw new InvalidOperationException($"Failed to create index: {result}");
         
@@ -127,12 +131,16 @@ public sealed class IndexHandle : SafeHandle
     /// <summary>
     /// Loads an index from a file.
     /// </summary>
-    public static IndexHandle Load(string path)
+    /// <param name="path">Path to saved index file.</param>
+    /// <param name="codebook">Codebook handle (needed for subsequent queries).</param>
+    public static IndexHandle Load(string path, CodebookHandle codebook)
     {
         if (string.IsNullOrWhiteSpace(path))
             throw new ArgumentException("Path cannot be null or empty", nameof(path));
+        if (codebook == null || codebook.IsInvalid)
+            throw new ArgumentException("Codebook is null or invalid", nameof(codebook));
         
-        var result = NativeMethods.aum_load_index(path, out var indexPtr);
+        var result = NativeMethods.aum_load_index(path, codebook.DangerousGetHandle(), out var indexPtr);
         if (result != ErrorCode.Success)
             throw new InvalidOperationException($"Failed to load index: {result}");
         

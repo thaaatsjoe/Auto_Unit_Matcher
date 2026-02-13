@@ -85,9 +85,13 @@ public partial class App : Application
         
         var databasePath = Path.Combine(appData, "fingerprints.db");
         var indexPath = Path.Combine(appData, "index.faiss");
+        var codebookPath = Path.Combine(appData, "codebook.bin");
         
         // Add AUM.Core services
-        services.AddAumCore(databasePath, indexPath);
+        services.AddAumCore(databasePath, indexPath, codebookPath);
+        
+        // Bridge Serilog to Microsoft.Extensions.Logging so ILogger<T> works in services
+        services.AddLogging(builder => builder.AddSerilog(dispose: false));
         
         // Add UI services
         services.AddSingleton<ISessionService, SessionService>();
@@ -184,17 +188,41 @@ public partial class App : Application
             }
             
             var json = File.ReadAllText(settingsPath);
-            var settings = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, string>>(json);
+            Log.Debug("Raw settings.json content: {Json}", json);
             
-            if (settings == null || !settings.TryGetValue("StlRootPath", out var stlRootPath))
+            Dictionary<string, string>? settings;
+            try
             {
-                Log.Warning("STL root path not configured");
+                settings = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, string>>(json);
+            }
+            catch (System.Text.Json.JsonException jsonEx)
+            {
+                Log.Error(jsonEx, "settings.json contains invalid JSON. Path: {SettingsPath}", settingsPath);
+                MessageBox.Show(
+                    $"STL root path settings file is corrupted.\n\n" +
+                    $"Please reconfigure via Settings or delete:\n{settingsPath}\n\n" +
+                    $"Error: {jsonEx.Message}",
+                    "Configuration Error", MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
             
+            if (settings == null || !settings.TryGetValue("StlRootPath", out var stlRootPath))
+            {
+                Log.Warning("STL root path not configured in settings.json");
+                return;
+            }
+            
+            // Normalize path (trim whitespace, ensure proper UNC format)
+            stlRootPath = stlRootPath.Trim();
+            Log.Information("Configured STL root path: {Path}", stlRootPath);
+            
             if (!Directory.Exists(stlRootPath))
             {
-                Log.Warning("STL root path does not exist: {Path}", stlRootPath);
+                Log.Warning("STL root path does not exist or is not accessible: {Path}", stlRootPath);
+                MessageBox.Show(
+                    $"STL root path is not accessible:\n{stlRootPath}\n\n" +
+                    $"Please check the network connection and path configuration.",
+                    "Path Not Found", MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
             

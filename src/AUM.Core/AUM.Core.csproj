@@ -23,23 +23,24 @@
   </ItemGroup>
 
   <!-- Copy native DLL and dependencies to output on build -->
+  <!-- NOTE: cmake outputs to build/bin/Release/, not build/Release/ -->
   <ItemGroup>
     <!-- Main engine DLL -->
-    <None Include="../AUM.Engine/build/Release/AUM.Engine.dll" 
+    <None Include="../AUM.Engine/build/bin/Release/AUM.Engine.dll" 
           CopyToOutputDirectory="PreserveNewest" 
-          Condition="Exists('../AUM.Engine/build/Release/AUM.Engine.dll')" />
+          Condition="Exists('../AUM.Engine/build/bin/Release/AUM.Engine.dll')" />
     
     <!-- PCL dependencies -->
-    <None Include="../AUM.Engine/build/Release/pcl_*.dll" 
+    <None Include="../AUM.Engine/build/bin/Release/pcl_*.dll" 
           CopyToOutputDirectory="PreserveNewest" />
     
     <!-- FAISS dependency -->
-    <None Include="../AUM.Engine/build/Release/faiss.dll" 
+    <None Include="../AUM.Engine/build/bin/Release/faiss.dll" 
           CopyToOutputDirectory="PreserveNewest" 
-          Condition="Exists('../AUM.Engine/build/Release/faiss.dll')" />
+          Condition="Exists('../AUM.Engine/build/bin/Release/faiss.dll')" />
     
     <!-- Other dependencies (BLAS, etc.) -->
-    <None Include="../AUM.Engine/build/Release/*.dll" 
+    <None Include="../AUM.Engine/build/bin/Release/*.dll" 
           CopyToOutputDirectory="PreserveNewest" />
     
     <!-- Migration SQL files -->

@@ -48,6 +48,15 @@ public interface IFingerprintEngine : IDisposable
     void LoadIndex(string path);
     
     /// <summary>
+    /// Compares two descriptors point-to-point for partial matching.
+    /// Returns a score (0-100%) based on how many query points match candidate points.
+    /// </summary>
+    /// <param name="queryDescriptor">Serialized descriptor blob from partial scan.</param>
+    /// <param name="candidateDescriptor">Serialized descriptor blob from database.</param>
+    /// <returns>Match score 0-100%.</returns>
+    float CompareDescriptors(byte[] queryDescriptor, byte[] candidateDescriptor);
+    
+    /// <summary>
     /// Gets the current number of entries in the index.
     /// </summary>
     int IndexCount { get; }

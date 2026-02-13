@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(AUM.Engine VERSION 1.0.0 LANGUAGES CXX)
+project(AUM.Engine VERSION 2.0.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -14,6 +14,7 @@ find_package(unofficial-sqlite3 CONFIG REQUIRED)
 set(ENGINE_SOURCES
     src/stl_parser.cpp
     src/descriptor.cpp
+    src/codebook.cpp
     src/matching.cpp
     src/engine_api.cpp
 )
@@ -22,6 +23,7 @@ set(ENGINE_HEADERS
     include/exports.h
     include/stl_parser.h
     include/descriptor.h
+    include/codebook.h
     include/matching.h
 )
 
@@ -59,7 +61,24 @@ install(TARGETS AUM.Engine
 
 install(FILES ${ENGINE_HEADERS} DESTINATION include/AUM.Engine)
 
+# ============================================================================
+# Codebook Training Tool (standalone executable)
+# ============================================================================
+add_executable(train_codebook tools/train_codebook.cpp)
+
+target_link_libraries(train_codebook 
+    PRIVATE 
+        AUM.Engine
+        ${PCL_LIBRARIES}
+)
+
+set_target_properties(train_codebook PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
+)
+
+# ============================================================================
 # Testing
+# ============================================================================
 option(BUILD_TESTS "Build unit tests" ON)
 if(BUILD_TESTS)
     find_package(GTest CONFIG REQUIRED)

@@ -1,8 +1,9 @@
 // Matching Index Unit Tests
-// Tests for FAISS-based similarity search
+// Tests for FAISS-based similarity search with codebook histograms
 
 #include <gtest/gtest.h>
 #include "matching.h"
+#include "codebook.h"
 #include "descriptor.h"
 #include <pcl/point_cloud.h>
 #include <pcl/point_types.h>
@@ -18,6 +19,21 @@ protected:
         cloud1_ = createSphereCloud(1.0f, 0.0f, 0.0f, 0.0f);
         cloud2_ = createSphereCloud(1.0f, 0.1f, 0.0f, 0.0f);  // Similar, slightly offset
         cloud3_ = createCubeCloud(2.0f, 5.0f, 0.0f, 0.0f);   // Different shape
+        
+        // Extract features for codebook training
+        DescriptorExtractor extractor;
+        auto desc1 = extractor.extract(cloud1_);
+        auto desc2 = extractor.extract(cloud2_);
+        auto desc3 = extractor.extract(cloud3_);
+        
+        // Train a small test codebook from the test clouds
+        std::vector<FPFHCloudPtr> trainingFeatures;
+        trainingFeatures.push_back(desc1.getFeatures());
+        trainingFeatures.push_back(desc2.getFeatures());
+        trainingFeatures.push_back(desc3.getFeatures());
+        
+        codebook_ = std::make_unique<Codebook>();
+        codebook_->train(trainingFeatures, 16);  // Small K for tests
     }
     
     PointCloudPtr createSphereCloud(float radius, float cx, float cy, float cz) {
@@ -64,10 +80,11 @@ protected:
     PointCloudPtr cloud1_;
     PointCloudPtr cloud2_; // Similar to cloud1_
     PointCloudPtr cloud3_; // Different shape
+    std::unique_ptr<Codebook> codebook_;
 };
 
 TEST_F(MatchingTest, CreateIndex) {
-    MatchingIndex index;
+    MatchingIndex index(codebook_.get());
     EXPECT_EQ(index.size(), 0);
 }
 
@@ -75,7 +92,7 @@ TEST_F(MatchingTest, AddToIndex) {
     DescriptorExtractor extractor;
     Descriptor desc = extractor.extract(cloud1_);
     
-    MatchingIndex index;
+    MatchingIndex index(codebook_.get());
     index.add(desc, 100);
     
     EXPECT_EQ(index.size(), 1);
@@ -85,7 +102,7 @@ TEST_F(MatchingTest, QueryEmptyIndex) {
     DescriptorExtractor extractor;
     Descriptor query = extractor.extract(cloud1_);
     
-    MatchingIndex index;
+    MatchingIndex index(codebook_.get());
     auto results = index.query(query, 5);
     
     EXPECT_TRUE(results.empty());
@@ -96,7 +113,7 @@ TEST_F(MatchingTest, QueryReturnsResults) {
     Descriptor desc1 = extractor.extract(cloud1_);
     Descriptor query = extractor.extract(cloud2_);
     
-    MatchingIndex index;
+    MatchingIndex index(codebook_.get());
     index.add(desc1, 100);
     
     auto results = index.query(query, 5);
@@ -111,7 +128,7 @@ TEST_F(MatchingTest, SimilarShapesHaveHigherConfidence) {
     Descriptor desc3 = extractor.extract(cloud3_);
     Descriptor query = extractor.extract(cloud2_);  // Similar to cloud1_
     
-    MatchingIndex index;
+    MatchingIndex index(codebook_.get());
     index.add(desc1, 1);  // Sphere
     index.add(desc3, 3);  // Cube
     
@@ -134,7 +151,7 @@ TEST_F(MatchingTest, ConfidenceInRange) {
     DescriptorExtractor extractor;
     Descriptor desc = extractor.extract(cloud1_);
     
-    MatchingIndex index;
+    MatchingIndex index(codebook_.get());
     index.add(desc, 1);
     
     auto results = index.query(desc, 1);  // Query with same descriptor
@@ -148,7 +165,7 @@ TEST_F(MatchingTest, ClearIndex) {
     DescriptorExtractor extractor;
     Descriptor desc = extractor.extract(cloud1_);
     
-    MatchingIndex index;
+    MatchingIndex index(codebook_.get());
     index.add(desc, 1);
     EXPECT_EQ(index.size(), 1);
     
@@ -159,7 +176,7 @@ TEST_F(MatchingTest, ClearIndex) {
 TEST_F(MatchingTest, MultipleDescriptors) {
     DescriptorExtractor extractor;
     
-    MatchingIndex index;
+    MatchingIndex index(codebook_.get());
     
     for (int i = 0; i < 10; ++i) {
         // Create slight variations

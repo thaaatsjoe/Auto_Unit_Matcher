@@ -5,6 +5,7 @@
 #include "stl_parser.h"
 #include "descriptor.h"
 #include "matching.h"
+#include "codebook.h"
 #include <string>
 #include <memory>
 
@@ -12,7 +13,7 @@
 static thread_local std::string g_lastError;
 
 // Version string
-static const char* VERSION = "1.0.0";
+static const char* VERSION = "2.0.0";
 
 // Helper to set error and return
 static AUM_ErrorCode setError(AUM_ErrorCode code, const std::string& msg) {
@@ -118,16 +119,51 @@ AUM_API void aum_free_blob(uint8_t* blob) {
 }
 
 // ============================================================================
-// Matching / FAISS Index
+// Codebook (Bag-of-Words)
 // ============================================================================
 
-AUM_API AUM_ErrorCode aum_create_index(AUM_IndexHandle* out_handle) {
-    if (!out_handle) {
+AUM_API AUM_ErrorCode aum_load_codebook(const char* path, AUM_CodebookHandle* out_handle) {
+    if (!path || !out_handle) {
         return setError(AUM_ERROR_NULL_POINTER, "Null pointer argument");
     }
     
     try {
-        *out_handle = new aum::MatchingIndex();
+        auto cb = aum::Codebook::load(path);
+        *out_handle = new aum::Codebook(std::move(cb));
+        return AUM_SUCCESS;
+    } catch (const std::exception& e) {
+        return setError(AUM_ERROR_FILE_NOT_FOUND, e.what());
+    }
+}
+
+AUM_API void aum_free_codebook(AUM_CodebookHandle handle) {
+    if (handle) {
+        delete static_cast<aum::Codebook*>(handle);
+    }
+}
+
+AUM_API AUM_ErrorCode aum_codebook_k(AUM_CodebookHandle cb, int* out_k) {
+    if (!cb || !out_k) {
+        return setError(AUM_ERROR_NULL_POINTER, "Null pointer argument");
+    }
+    
+    auto codebook = static_cast<aum::Codebook*>(cb);
+    *out_k = codebook->K();
+    return AUM_SUCCESS;
+}
+
+// ============================================================================
+// Matching / FAISS Index
+// ============================================================================
+
+AUM_API AUM_ErrorCode aum_create_index(AUM_CodebookHandle codebook, AUM_IndexHandle* out_handle) {
+    if (!codebook || !out_handle) {
+        return setError(AUM_ERROR_NULL_POINTER, "Null pointer argument");
+    }
+    
+    try {
+        auto cb = static_cast<aum::Codebook*>(codebook);
+        *out_handle = new aum::MatchingIndex(cb);
         return AUM_SUCCESS;
     } catch (const std::exception& e) {
         return setError(AUM_ERROR_OUT_OF_MEMORY, e.what());
@@ -201,13 +237,14 @@ AUM_API AUM_ErrorCode aum_save_index(AUM_IndexHandle idx, const char* path) {
     }
 }
 
-AUM_API AUM_ErrorCode aum_load_index(const char* path, AUM_IndexHandle* out_handle) {
-    if (!path || !out_handle) {
+AUM_API AUM_ErrorCode aum_load_index(const char* path, AUM_CodebookHandle codebook, AUM_IndexHandle* out_handle) {
+    if (!path || !codebook || !out_handle) {
         return setError(AUM_ERROR_NULL_POINTER, "Null pointer argument");
     }
     
     try {
-        auto index = aum::MatchingIndex::load(path);
+        auto cb = static_cast<aum::Codebook*>(codebook);
+        auto index = aum::MatchingIndex::load(path, cb);
         *out_handle = new aum::MatchingIndex(std::move(index));
         return AUM_SUCCESS;
     } catch (const std::exception& e) {
@@ -218,6 +255,26 @@ AUM_API AUM_ErrorCode aum_load_index(const char* path, AUM_IndexHandle* out_hand
 AUM_API void aum_free_index(AUM_IndexHandle handle) {
     if (handle) {
         delete static_cast<aum::MatchingIndex*>(handle);
+    }
+}
+
+AUM_API AUM_ErrorCode aum_compare_descriptors(
+    AUM_DescriptorHandle query,
+    AUM_DescriptorHandle candidate,
+    float* out_score
+) {
+    if (!query || !candidate || !out_score) {
+        return setError(AUM_ERROR_NULL_POINTER, "Null pointer argument");
+    }
+    
+    try {
+        auto queryDesc = static_cast<aum::Descriptor*>(query);
+        auto candidateDesc = static_cast<aum::Descriptor*>(candidate);
+        
+        *out_score = aum::MatchingIndex::compareDescriptors(*queryDesc, *candidateDesc);
+        return AUM_SUCCESS;
+    } catch (const std::exception& e) {
+        return setError(AUM_ERROR_COMPUTATION_FAILED, e.what());
     }
 }
 

@@ -22,6 +22,7 @@ extern "C" {
 typedef void* AUM_PointCloudHandle;
 typedef void* AUM_DescriptorHandle;
 typedef void* AUM_IndexHandle;
+typedef void* AUM_CodebookHandle;
 
 // Error codes
 typedef enum {
@@ -105,15 +106,38 @@ AUM_API void aum_free_descriptor(AUM_DescriptorHandle handle);
 AUM_API void aum_free_blob(uint8_t* blob);
 
 // ============================================================================
+// Codebook (Bag-of-Words)
+// ============================================================================
+
+/**
+ * Load a trained codebook from file.
+ * @param path Path to codebook binary file
+ * @param out_handle Output codebook handle (caller must free with aum_free_codebook)
+ * @return AUM_SUCCESS or error code
+ */
+AUM_API AUM_ErrorCode aum_load_codebook(const char* path, AUM_CodebookHandle* out_handle);
+
+/**
+ * Free a codebook handle.
+ */
+AUM_API void aum_free_codebook(AUM_CodebookHandle handle);
+
+/**
+ * Get the number of clusters (K) in the codebook.
+ */
+AUM_API AUM_ErrorCode aum_codebook_k(AUM_CodebookHandle cb, int* out_k);
+
+// ============================================================================
 // Matching / FAISS Index
 // ============================================================================
 
 /**
- * Create a new FAISS index for similarity search.
+ * Create a new FAISS index using a codebook for histogram-based matching.
+ * @param codebook Codebook handle (must remain valid for lifetime of index)
  * @param out_handle Output index handle (caller must free with aum_free_index)
  * @return AUM_SUCCESS or error code
  */
-AUM_API AUM_ErrorCode aum_create_index(AUM_IndexHandle* out_handle);
+AUM_API AUM_ErrorCode aum_create_index(AUM_CodebookHandle codebook, AUM_IndexHandle* out_handle);
 
 /**
  * Add a descriptor to the index.
@@ -155,8 +179,26 @@ AUM_API AUM_ErrorCode aum_save_index(AUM_IndexHandle idx, const char* path);
 
 /**
  * Load index from file.
+ * @param path Path to saved index file
+ * @param codebook Codebook handle (needed for subsequent queries)
+ * @param out_handle Output index handle
  */
-AUM_API AUM_ErrorCode aum_load_index(const char* path, AUM_IndexHandle* out_handle);
+AUM_API AUM_ErrorCode aum_load_index(const char* path, AUM_CodebookHandle codebook, AUM_IndexHandle* out_handle);
+
+/**
+ * Compare two descriptors point-to-point for partial matching.
+ * Returns a score (0-100%) based on how many query points match candidate points.
+ * Robust to partial scans.
+ * @param query Query descriptor (e.g. partial scan)
+ * @param candidate Candidate descriptor (e.g. full model from DB)
+ * @param out_score Output match score (0-100)
+ * @return AUM_SUCCESS or error code
+ */
+AUM_API AUM_ErrorCode aum_compare_descriptors(
+    AUM_DescriptorHandle query,
+    AUM_DescriptorHandle candidate,
+    float* out_score
+);
 
 /**
  * Free an index handle.
