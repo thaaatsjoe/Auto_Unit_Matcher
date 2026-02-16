@@ -1,5 +1,5 @@
 // FAISS Local Feature Voting + RANSAC + Dense ICP Matching Implementation
-// Stage 1: FAISS IndexIVFFlat voting on SHOT352 keypoints
+// Stage 1: FAISS IndexFlatL2 (exact search) voting on SHOT352 keypoints
 // Stage 2a: RANSAC geometric gatekeeper on sparse keypoints
 // Stage 2b: Dense Point-to-Plane ICP on VoxelGrid-downsampled cloud
 
@@ -32,8 +32,8 @@ MatchingIndex::MatchingIndex(MatchingIndex&& other) noexcept
       trained_(other.trained_),
       pendingVectors_(std::move(other.pendingVectors_)),
       pendingIds_(std::move(other.pendingIds_)),
-      quantizer_(std::move(other.quantizer_)),
-      ivfIndex_(std::move(other.ivfIndex_)) {
+      flatIndex_(std::move(other.flatIndex_)),
+      idMapIndex_(std::move(other.idMapIndex_)) {
     other.trained_ = false;
 }
 
@@ -43,8 +43,8 @@ MatchingIndex& MatchingIndex::operator=(MatchingIndex&& other) noexcept {
         trained_ = other.trained_;
         pendingVectors_ = std::move(other.pendingVectors_);
         pendingIds_ = std::move(other.pendingIds_);
-        quantizer_ = std::move(other.quantizer_);
-        ivfIndex_ = std::move(other.ivfIndex_);
+        flatIndex_ = std::move(other.flatIndex_);
+        idMapIndex_ = std::move(other.idMapIndex_);
         other.trained_ = false;
     }
     return *this;
@@ -82,10 +82,10 @@ void MatchingIndex::add(const Descriptor& desc, int64_t unitId) {
     }
     
     // If already trained, add directly to index
-    if (trained_ && ivfIndex_) {
+    if (trained_ && idMapIndex_) {
         size_t n = pendingIds_.size();
         if (n > 0) {
-            ivfIndex_->add_with_ids(
+            idMapIndex_->add_with_ids(
                 static_cast<faiss::idx_t>(n),
                 pendingVectors_.data(),
                 pendingIds_.data());
@@ -105,31 +105,17 @@ void MatchingIndex::trainIndex() {
         throw std::runtime_error("Cannot train index: no vectors added");
     }
     
-    // Calculate nlist: sqrt(n), clamped to [1, 4096]
-    int nlist = std::max(1, std::min(4096, static_cast<int>(std::sqrt(static_cast<float>(n)))));
+    // Create IndexFlatL2 (exact exhaustive search) wrapped in IndexIDMap
+    // No IVF clustering — guarantees 100% recall at the cost of O(n) search
+    // This is acceptable for dental lab scale (~6000 units max)
+    flatIndex_ = std::make_unique<faiss::IndexFlatL2>(dimension_);
+    idMapIndex_ = std::make_unique<faiss::IndexIDMap>(flatIndex_.get());
     
-    // Ensure we have enough vectors to train (need at least nlist * 39)
-    // If not enough, reduce nlist
-    while (nlist > 1 && n < static_cast<size_t>(nlist * 39)) {
-        nlist = std::max(1, nlist / 2);
-    }
-    
-    // Create quantizer and IVF index
-    quantizer_ = std::make_unique<faiss::IndexFlatL2>(dimension_);
-    ivfIndex_ = std::make_unique<faiss::IndexIVFFlat>(
-        quantizer_.get(), dimension_, nlist, faiss::METRIC_L2);
-    
-    // Train on all buffered vectors
-    ivfIndex_->train(static_cast<faiss::idx_t>(n), pendingVectors_.data());
-    
-    // Add all buffered vectors with IDs
-    ivfIndex_->add_with_ids(
+    // Add all buffered vectors with IDs (no training needed for FlatL2)
+    idMapIndex_->add_with_ids(
         static_cast<faiss::idx_t>(n),
         pendingVectors_.data(),
         pendingIds_.data());
-    
-    // Set nprobe for search quality (search more clusters for better recall)
-    ivfIndex_->nprobe = std::max(1, std::min(nlist, 32));
     
     // Clear buffers to free memory
     pendingVectors_.clear();
@@ -147,7 +133,7 @@ void MatchingIndex::trainIndex() {
 std::vector<VoteResult> MatchingIndex::queryVotes(
     const Descriptor& query, int topK, int neighborsPerKeypoint) {
     
-    if (!trained_ || !ivfIndex_) {
+    if (!trained_ || !idMapIndex_) {
         throw std::runtime_error("Index not trained — call trainIndex() first");
     }
     
@@ -171,7 +157,7 @@ std::vector<VoteResult> MatchingIndex::queryVotes(
     std::vector<float> distances(querySize * neighborsPerKeypoint);
     std::vector<faiss::idx_t> ids(querySize * neighborsPerKeypoint);
     
-    ivfIndex_->search(
+    idMapIndex_->search(
         static_cast<faiss::idx_t>(querySize),
         queryVectors.data(),
         neighborsPerKeypoint,
@@ -188,8 +174,10 @@ std::vector<VoteResult> MatchingIndex::queryVotes(
         int64_t unitId = decodeUnitId(ids[i]);
         float dist = distances[i];
         
-        // Weight: 1 / (1 + distance^2) — aggressive boost for perfect matches
-        float weight = 1.0f / (1.0f + dist * dist);
+        // Weight: exp(-dist * 5.0) — sharp exponential decay
+        // Perfect match (dist~0) → weight~1.0, noise (dist>1) → weight~0.007
+        // Prevents generic anatomy from drowning out the true match
+        float weight = std::exp(-dist * 5.0f);
         
         voteScores[unitId] += weight;
         voteCounts[unitId]++;
@@ -441,8 +429,8 @@ VerificationResult MatchingIndex::verify(
 
 size_t MatchingIndex::size() const {
     size_t total = pendingIds_.size();
-    if (ivfIndex_) {
-        total += static_cast<size_t>(ivfIndex_->ntotal);
+    if (idMapIndex_) {
+        total += static_cast<size_t>(idMapIndex_->ntotal);
     }
     return total;
 }
@@ -452,8 +440,8 @@ void MatchingIndex::clear() {
     pendingVectors_.shrink_to_fit();
     pendingIds_.clear();
     pendingIds_.shrink_to_fit();
-    ivfIndex_.reset();
-    quantizer_.reset();
+    idMapIndex_.reset();
+    flatIndex_.reset();
     trained_ = false;
 }
 
@@ -462,28 +450,25 @@ void MatchingIndex::clear() {
 // ============================================================================
 
 void MatchingIndex::save(const std::string& path) const {
-    if (!trained_ || !ivfIndex_) {
+    if (!trained_ || !idMapIndex_) {
         throw std::runtime_error("Cannot save untrained index");
     }
-    faiss::write_index(ivfIndex_.get(), path.c_str());
+    faiss::write_index(idMapIndex_.get(), path.c_str());
 }
 
 MatchingIndex MatchingIndex::load(const std::string& path) {
     auto* rawIndex = faiss::read_index(path.c_str());
-    auto* ivf = dynamic_cast<faiss::IndexIVFFlat*>(rawIndex);
-    if (!ivf) {
+    auto* idMap = dynamic_cast<faiss::IndexIDMap*>(rawIndex);
+    if (!idMap) {
         delete rawIndex;
-        throw std::runtime_error("Loaded index is not IndexIVFFlat");
+        throw std::runtime_error("Loaded index is not IndexIDMap");
     }
     
-    MatchingIndex result(ivf->d);
-    result.ivfIndex_.reset(ivf);
-    // The quantizer is owned by the IVF index after loading
-    result.quantizer_.reset(); // Don't double-own it
+    MatchingIndex result(idMap->d);
+    result.idMapIndex_.reset(idMap);
+    // The flat index is owned by the IDMap after loading
+    result.flatIndex_.reset(); // Don't double-own it
     result.trained_ = true;
-    
-    // Set nprobe
-    result.ivfIndex_->nprobe = std::max(1, std::min(static_cast<int>(ivf->nlist), 32));
     
     return result;
 }

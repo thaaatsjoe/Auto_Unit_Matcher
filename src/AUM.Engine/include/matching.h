@@ -3,7 +3,6 @@
 #include "exports.h"
 #include "descriptor.h"
 #include <faiss/IndexFlat.h>
-#include <faiss/IndexIVFFlat.h>
 #include <faiss/IndexIDMap.h>
 #include <memory>
 #include <vector>
@@ -16,7 +15,7 @@ namespace aum {
  */
 struct AUM_API VoteResult {
     int64_t unitId;       // Database ID of the unit
-    float   voteScore;    // Weighted vote score (sum of 1/distance)
+    float   voteScore;    // Weighted vote score (sum of exp(-dist*5))
     int     voteCount;    // Raw number of keypoint votes
 };
 
@@ -48,7 +47,8 @@ static constexpr int64_t MAX_KEYPOINTS_PER_UNIT = 10000;
  * FAISS-based Local Feature Voting index with Dense ICP verification.
  * 
  * Stage 1 (Voting):
- *   Indexes all ISS/SHOT keypoints in a FAISS IndexIVFFlat.
+ *   Indexes all ISS/SHOT keypoints in a FAISS IndexFlatL2 (exact search).
+ *   Wrapped in IndexIDMap for unit ID preservation.
  *   At query time, each scan keypoint votes for its nearest unit.
  *   Top-K voted units proceed to Stage 2.
  * 
@@ -82,9 +82,9 @@ public:
     void add(const Descriptor& desc, int64_t unitId);
     
     /**
-     * Train the IVF index and add all buffered vectors.
+     * Finalize the index and add all buffered vectors.
      * Must be called after all add() calls and before any query.
-     * Builds IndexIVFFlat with nlist = sqrt(ntotal) clusters.
+     * Uses IndexFlatL2 (exact search) wrapped in IndexIDMap.
      */
     void trainIndex();
     
@@ -94,10 +94,10 @@ public:
      * decodes the unit IDs, and accumulates weighted votes.
      * @param query Query descriptor (from scan)
      * @param topK Number of top-voted units to return
-     * @param neighborsPerKeypoint How many FAISS neighbors per query keypoint (default 3)
+     * @param neighborsPerKeypoint How many FAISS neighbors per query keypoint (default 100)
      * @return Sorted vector of VoteResult (highest vote score first)
      */
-    std::vector<VoteResult> queryVotes(const Descriptor& query, int topK = 10, int neighborsPerKeypoint = 5);
+    std::vector<VoteResult> queryVotes(const Descriptor& query, int topK = 10, int neighborsPerKeypoint = 100);
     
     /**
      * Stage 2: Geometric verification using RANSAC + Dense Point-to-Plane ICP.
@@ -156,8 +156,8 @@ private:
     std::vector<int64_t> pendingIds_;
     
     // FAISS index components (created during trainIndex)
-    std::unique_ptr<faiss::IndexFlatL2> quantizer_;
-    std::unique_ptr<faiss::IndexIVFFlat> ivfIndex_;
+    std::unique_ptr<faiss::IndexFlatL2> flatIndex_;
+    std::unique_ptr<faiss::IndexIDMap> idMapIndex_;
     
     // Decode composite FAISS ID
     static int64_t encodeId(int64_t unitId, int keypointIdx) {

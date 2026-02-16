@@ -54,7 +54,7 @@ public sealed class IndexHandle : SafeHandle
     }
     
     /// <summary>
-    /// Trains the IVF index. Must be called after adding all descriptors and before querying.
+    /// Finalizes the FlatL2 index. Must be called after adding all descriptors and before querying.
     /// </summary>
     public void Train()
     {

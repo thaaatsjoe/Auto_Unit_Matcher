@@ -170,9 +170,9 @@ public sealed class FingerprintEngine : IFingerprintEngine
         if (_index == null || _index.IsInvalid)
             throw new InvalidOperationException("Index is not initialized");
         
-        _logger?.LogInformation("Training IVF index with {Count} units' keypoints", _indexCount);
+        _logger?.LogInformation("Building FlatL2 index with {Count} units' keypoints", _indexCount);
         _index.Train();
-        _logger?.LogInformation("IVF index training complete");
+        _logger?.LogInformation("FlatL2 index build complete");
     }
     
     /// <inheritdoc/>

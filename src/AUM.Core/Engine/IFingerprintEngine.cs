@@ -40,7 +40,7 @@ public interface IFingerprintEngine : IDisposable
     void AddToIndex(long id, byte[] descriptor);
     
     /// <summary>
-    /// Trains the IVF index. Call after adding all entries, before querying.
+    /// Finalizes the FlatL2 index. Call after adding all entries, before querying.
     /// </summary>
     void TrainIndex();
     

@@ -54,7 +54,7 @@ TEST_F(DescriptorTest, KeypointCountReasonable) {
     
     // With relaxed ISS params on a 5000-point sphere, expect 10+ keypoints
     EXPECT_GE(desc.size(), 5);
-    EXPECT_LE(desc.size(), 500);  // Should not exceed maxKeypoints
+    EXPECT_LE(desc.size(), 3000);  // Should not exceed maxKeypoints
 }
 
 TEST_F(DescriptorTest, SHOTDimensionCorrect) {

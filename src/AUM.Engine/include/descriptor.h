@@ -35,8 +35,8 @@ struct AUM_API DescriptorConfig {
     // Downsampling
     float voxelSize = 0.2f;           // Smooths 50-micron milling noise, preserves macro anatomy
     
-    // Normal estimation (for SHOT features — broad neighborhood for stability)
-    float normalRadius = 1.0f;        // ~5x voxelSize for stable normal estimation
+    // Normal estimation (for SHOT features — surface-bound, no bleed-through)
+    float normalRadius = 0.5f;        // ≤crown thickness — prevents LRF flip from intaglio
     
     // ISS Keypoint Detection
     float issSalientRadius = 1.0f;    // Captures cusp/pit scale features
@@ -44,7 +44,7 @@ struct AUM_API DescriptorConfig {
     float issThreshold21 = 0.85f;     // Accept surface variation
     float issThreshold32 = 0.85f;     // Accept surface variation
     int   issMinNeighbors = 5;        // ISS minimum neighbors
-    int   maxKeypoints = 200;         // Hard cap — sorted by saliency descending
+    int   maxKeypoints = 2000;        // High cap — ISS non-max radius distributes naturally
     
     // SHOT descriptor
     float shotRadius = 1.0f;          // < crown thickness — prevents Thin Shell penetration

@@ -138,8 +138,8 @@ AUM_API AUM_ErrorCode aum_create_index(AUM_IndexHandle* out_handle);
 AUM_API AUM_ErrorCode aum_add_to_index(AUM_IndexHandle idx, AUM_DescriptorHandle desc, int64_t unitId);
 
 /**
- * Train the IVF index. Must be called after all add() calls and before querying.
- * Builds IndexIVFFlat with nlist = sqrt(ntotal) clusters.
+ * Finalize the index. Must be called after all add() calls and before querying.
+ * Builds IndexFlatL2 (exact search) wrapped in IndexIDMap.
  * @param idx Index handle
  * @return AUM_SUCCESS or error code
  */
