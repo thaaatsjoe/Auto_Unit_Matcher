@@ -17,12 +17,10 @@ public static class ServiceCollectionExtensions
     /// </summary>
     /// <param name="services">The service collection.</param>
     /// <param name="databasePath">Path to the SQLite database file.</param>
-    /// <param name="indexPath">Path to the FAISS index file.</param>
     /// <returns>The service collection for chaining.</returns>
     public static IServiceCollection AddAumCore(
         this IServiceCollection services, 
-        string databasePath,
-        string indexPath)
+        string databasePath)
     {
         // Database context (singleton - manages connection lifecycle)
         services.AddSingleton<DatabaseContext>(sp =>
@@ -87,7 +85,7 @@ public static class ServiceCollectionExtensions
             var engine = sp.GetRequiredService<IFingerprintEngine>();
             var unitRepo = sp.GetRequiredService<IUnitRepository>();
             var logger = sp.GetService<ILogger<IndexService>>();
-            return new IndexService(engine, unitRepo, indexPath, logger);
+            return new IndexService(engine, unitRepo, logger);
         });
         
         // Application services

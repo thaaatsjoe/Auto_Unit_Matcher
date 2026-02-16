@@ -58,8 +58,9 @@ public class UnitService : IUnitService
             CreatedAt = DateTime.UtcNow
         };
         
-        // Save to database
-        var id = await _unitRepository.AddAsync(unit);
+        // Save to database (upsert handles the case where STL was previously registered
+        // but needs re-extraction due to a failed or missing descriptor)
+        var id = await _unitRepository.UpsertByStlPathAsync(unit);
         _logger?.LogInformation("Registered unit {Id} for case {CaseId}", id, caseId);
         
         // Add to search index

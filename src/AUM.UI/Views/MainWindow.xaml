@@ -37,6 +37,7 @@
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*" />
                     <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
                 
                 <StackPanel Orientation="Horizontal">
@@ -48,7 +49,8 @@
                 
                 <StackPanel Grid.Column="1" 
                             Orientation="Horizontal" 
-                            VerticalAlignment="Center">
+                            VerticalAlignment="Center"
+                            Margin="0,0,12,0">
                     <TextBlock Text="Operator: " 
                                Foreground="White" 
                                Opacity="0.8" />
@@ -56,6 +58,17 @@
                                Foreground="White" 
                                FontWeight="SemiBold" />
                 </StackPanel>
+                
+                <Button Grid.Column="2" 
+                        Content="⚙ Settings" 
+                        Command="{Binding OpenSettingsCommand}"
+                        Background="Transparent" 
+                        Foreground="White" 
+                        BorderBrush="White" 
+                        BorderThickness="1"
+                        Padding="12,6"
+                        Cursor="Hand"
+                        ToolTip="Open Settings (S)" />
             </Grid>
         </Border>
         

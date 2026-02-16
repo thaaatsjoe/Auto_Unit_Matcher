@@ -6,7 +6,8 @@ namespace AUM.Core.Services;
 public interface IIndexService
 {
     /// <summary>
-    /// Initializes the index, loading from disk if available.
+    /// Initializes the index by rebuilding from the database.
+    /// The database is the single source of truth — the index is never loaded from file.
     /// </summary>
     Task InitializeAsync();
     
@@ -26,11 +27,6 @@ public interface IIndexService
     /// Trains the index (required before querying).
     /// </summary>
     Task TrainAsync();
-    
-    /// <summary>
-    /// Saves the index to disk.
-    /// </summary>
-    Task SaveAsync();
     
     /// <summary>
     /// Gets the number of entries in the index.

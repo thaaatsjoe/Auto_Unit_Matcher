@@ -218,8 +218,7 @@ public partial class MainViewModel : ObservableObject
     {
         try
         {
-            var units = await _unitRepository.GetAllAsync();
-            UnitCount = units.Count;
+            UnitCount = await _unitRepository.CountAsync();
         }
         catch (Exception ex)
         {

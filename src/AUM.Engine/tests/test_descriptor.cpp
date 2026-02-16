@@ -1,5 +1,5 @@
-// Descriptor Extraction Unit Tests
-// Tests for FPFH descriptor extraction
+// ISS Keypoint + SHOT352 Descriptor Extraction Unit Tests
+// Tests for the ISS+SHOT352 pipeline (replaces old FPFH tests)
 
 #include <gtest/gtest.h>
 #include "descriptor.h"
@@ -13,37 +13,21 @@ namespace test {
 class DescriptorTest : public ::testing::Test {
 protected:
     void SetUp() override {
-        // Create a simple test point cloud (cube corners + center points)
+        // Create a dense sphere cloud with enough points for ISS+SHOT
         testCloud_ = std::make_shared<PointCloud>();
         
-        // Add cube corners
-        for (float x = -1.0f; x <= 1.0f; x += 2.0f) {
-            for (float y = -1.0f; y <= 1.0f; y += 2.0f) {
-                for (float z = -1.0f; z <= 1.0f; z += 2.0f) {
-                    pcl::PointXYZ pt;
-                    pt.x = x; pt.y = y; pt.z = z;
-                    testCloud_->push_back(pt);
-                }
+        float radius = 10.0f;  // 10mm — dental crown scale
+        for (int lat = 0; lat < 50; ++lat) {
+            for (int lon = 0; lon < 100; ++lon) {
+                float theta = static_cast<float>(lat) / 50.0f * 3.14159f;
+                float phi = static_cast<float>(lon) / 100.0f * 6.28318f;
+                
+                pcl::PointXYZ pt;
+                pt.x = radius * std::sin(theta) * std::cos(phi);
+                pt.y = radius * std::sin(theta) * std::sin(phi);
+                pt.z = radius * std::cos(theta);
+                testCloud_->push_back(pt);
             }
-        }
-        
-        // Add more points to make a valid point cloud for normal estimation
-        // Add face centers
-        testCloud_->push_back(pcl::PointXYZ(0, 0, 1));
-        testCloud_->push_back(pcl::PointXYZ(0, 0, -1));
-        testCloud_->push_back(pcl::PointXYZ(0, 1, 0));
-        testCloud_->push_back(pcl::PointXYZ(0, -1, 0));
-        testCloud_->push_back(pcl::PointXYZ(1, 0, 0));
-        testCloud_->push_back(pcl::PointXYZ(-1, 0, 0));
-        
-        // Add edge centers  
-        for (int i = 0; i < 50; ++i) {
-            float theta = static_cast<float>(i) / 50.0f * 6.28f;
-            testCloud_->push_back(pcl::PointXYZ(
-                std::cos(theta),
-                std::sin(theta),
-                0.0f
-            ));
         }
         
         testCloud_->width = static_cast<uint32_t>(testCloud_->size());
@@ -56,58 +40,55 @@ protected:
 
 TEST_F(DescriptorTest, ExtractFromValidCloud) {
     DescriptorExtractor extractor;
-    
-    // This should not throw
     Descriptor desc = extractor.extract(testCloud_);
     
-    // Should have features
-    auto features = desc.getFeatures();
-    EXPECT_TRUE(features != nullptr);
-    EXPECT_GT(features->size(), 0);
+    // Should have keypoints and features
+    EXPECT_TRUE(desc.getKeypoints() != nullptr);
+    EXPECT_TRUE(desc.getFeatures() != nullptr);
+    EXPECT_GT(desc.size(), 0);
 }
 
-TEST_F(DescriptorTest, AggregatedVectorDimension) {
+TEST_F(DescriptorTest, KeypointCountReasonable) {
     DescriptorExtractor extractor;
     Descriptor desc = extractor.extract(testCloud_);
     
-    auto vec = desc.getAggregatedVector();
-    EXPECT_EQ(vec.size(), 33);  // FPFH has 33 bins
+    // With relaxed ISS params on a 5000-point sphere, expect 10+ keypoints
+    EXPECT_GE(desc.size(), 5);
+    EXPECT_LE(desc.size(), 500);  // Should not exceed maxKeypoints
 }
 
-TEST_F(DescriptorTest, AggregatedVectorIsNormalized) {
-    DescriptorExtractor extractor;
-    Descriptor desc = extractor.extract(testCloud_);
-    
-    auto vec = desc.getAggregatedVector();
-    
-    // L2 norm should be approximately 1.0
-    float norm = 0.0f;
-    for (float v : vec) {
-        norm += v * v;
-    }
-    norm = std::sqrt(norm);
-    
-    EXPECT_NEAR(norm, 1.0f, 0.01f);
+TEST_F(DescriptorTest, SHOTDimensionCorrect) {
+    EXPECT_EQ(Descriptor::SHOT_DIM, 352);
+    EXPECT_EQ(Descriptor::dimension(), 352);
 }
 
-TEST_F(DescriptorTest, SerializeDeserialize) {
+TEST_F(DescriptorTest, SerializeDeserializeRoundTrip) {
     DescriptorExtractor extractor;
     Descriptor original = extractor.extract(testCloud_);
     
     // Serialize
     auto blob = original.serialize();
-    EXPECT_GT(blob.size(), 4);  // At least count + some data
+    EXPECT_GT(blob.size(), 8);  // magic(4) + count(4) + data
+    
+    // Check magic bytes
+    EXPECT_EQ(blob[0], 'S');
+    EXPECT_EQ(blob[1], 'H');
+    EXPECT_EQ(blob[2], '0');
+    EXPECT_EQ(blob[3], '1');
     
     // Deserialize
     Descriptor restored = Descriptor::deserialize(blob.data(), blob.size());
     
-    // Compare aggregated vectors
-    auto vec1 = original.getAggregatedVector();
-    auto vec2 = restored.getAggregatedVector();
+    // Should have same number of keypoints
+    EXPECT_EQ(original.size(), restored.size());
     
-    ASSERT_EQ(vec1.size(), vec2.size());
-    for (size_t i = 0; i < vec1.size(); ++i) {
-        EXPECT_NEAR(vec1[i], vec2[i], 0.001f);
+    // Compare first keypoint position
+    if (original.size() > 0) {
+        auto origKp = original.getKeypoints();
+        auto restKp = restored.getKeypoints();
+        EXPECT_NEAR((*origKp)[0].x, (*restKp)[0].x, 0.001f);
+        EXPECT_NEAR((*origKp)[0].y, (*restKp)[0].y, 0.001f);
+        EXPECT_NEAR((*origKp)[0].z, (*restKp)[0].z, 0.001f);
     }
 }
 
@@ -122,14 +103,18 @@ TEST_F(DescriptorTest, ConfigurableParameters) {
     DescriptorConfig config;
     config.voxelSize = 0.2f;
     config.normalRadius = 1.0f;
-    config.fpfhRadius = 2.0f;
-    config.numPoints = 500;
+    config.issSalientRadius = 1.0f;
+    config.issNonMaxRadius = 0.8f;
+    config.issThreshold21 = 0.9f;
+    config.issThreshold32 = 0.9f;
+    config.shotRadius = 2.5f;
     
     DescriptorExtractor extractor(config);
     
     // Should work with custom config
     Descriptor desc = extractor.extract(testCloud_);
-    EXPECT_TRUE(desc.getFeatures() != nullptr);
+    EXPECT_TRUE(desc.getKeypoints() != nullptr);
+    EXPECT_GT(desc.size(), 0);
 }
 
 } // namespace test

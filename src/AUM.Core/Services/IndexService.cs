@@ -6,12 +6,13 @@ namespace AUM.Core.Services;
 
 /// <summary>
 /// Service for managing the FAISS search index.
+/// The database is the single source of truth — the index is an ephemeral
+/// acceleration structure rebuilt from the database on every startup.
 /// </summary>
 public class IndexService : IIndexService
 {
     private readonly IFingerprintEngine _engine;
     private readonly IUnitRepository _unitRepository;
-    private readonly string _indexPath;
     private readonly ILogger<IndexService>? _logger;
     
     private int _count;
@@ -20,12 +21,10 @@ public class IndexService : IIndexService
     public IndexService(
         IFingerprintEngine engine,
         IUnitRepository unitRepository,
-        string indexPath,
         ILogger<IndexService>? logger = null)
     {
         _engine = engine;
         _unitRepository = unitRepository;
-        _indexPath = indexPath;
         _logger = logger;
     }
     
@@ -38,25 +37,9 @@ public class IndexService : IIndexService
     /// <inheritdoc/>
     public async Task InitializeAsync()
     {
-        _logger?.LogInformation("Initializing index service");
+        _logger?.LogInformation("Initializing index service — rebuilding from database (source of truth)");
         
-        // Try to load existing index
-        if (File.Exists(_indexPath))
-        {
-            try
-            {
-                _engine.LoadIndex(_indexPath);
-                _isReady = true;
-                _logger?.LogInformation("Loaded existing index from {Path}", _indexPath);
-                return;
-            }
-            catch (Exception ex)
-            {
-                _logger?.LogWarning(ex, "Failed to load index from {Path}, rebuilding", _indexPath);
-            }
-        }
-        
-        // Rebuild from database
+        // Always rebuild from database. Never trust a file on disk.
         await RebuildAsync();
     }
     
@@ -82,6 +65,9 @@ public class IndexService : IIndexService
         _isReady = false;
         _count = 0;
         
+        // Clear the existing index to remove any stale entries
+        _engine.ClearIndex();
+        
         // Load all descriptors from database
         var descriptors = await _unitRepository.GetAllDescriptorsAsync();
         
@@ -91,7 +77,7 @@ public class IndexService : IIndexService
             _count++;
         }
         
-        _logger?.LogInformation("Added {Count} entries to index", _count);
+        _logger?.LogInformation("Rebuilt index with {Count} entries from database", _count);
         
         // Train and mark ready
         await TrainAsync();
@@ -108,24 +94,6 @@ public class IndexService : IIndexService
         
         _isReady = true;
         _logger?.LogInformation("Index is ready");
-        
-        return Task.CompletedTask;
-    }
-    
-    /// <inheritdoc/>
-    public Task SaveAsync()
-    {
-        _logger?.LogInformation("Saving index to {Path}", _indexPath);
-        
-        // Ensure directory exists
-        var dir = Path.GetDirectoryName(_indexPath);
-        if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
-        {
-            Directory.CreateDirectory(dir);
-        }
-        
-        _engine.SaveIndex(_indexPath);
-        _logger?.LogInformation("Index saved successfully");
         
         return Task.CompletedTask;
     }

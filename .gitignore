@@ -33,3 +33,6 @@ TestResults/
 # Logs
 logs/
 *.log
+
+# Training data
+TRAINING DATA/

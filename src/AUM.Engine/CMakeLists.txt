@@ -1,14 +1,13 @@
 cmake_minimum_required(VERSION 3.20)
-project(AUM.Engine VERSION 1.0.0 LANGUAGES CXX)
+project(AUM.Engine VERSION 4.0.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_WINDOWS_EXPORT_ALL_SYMBOLS OFF)
 
 # Find packages via vcpkg
-find_package(PCL CONFIG REQUIRED)
+find_package(PCL CONFIG REQUIRED COMPONENTS common io features filters keypoints registration search)
 find_package(faiss CONFIG REQUIRED)
-find_package(unofficial-sqlite3 CONFIG REQUIRED)
 
 # Engine library sources
 set(ENGINE_SOURCES
@@ -59,6 +58,7 @@ install(TARGETS AUM.Engine
 
 install(FILES ${ENGINE_HEADERS} DESTINATION include/AUM.Engine)
 
+# ============================================================================
 # Testing
 option(BUILD_TESTS "Build unit tests" ON)
 if(BUILD_TESTS)

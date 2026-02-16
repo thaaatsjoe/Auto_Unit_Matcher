@@ -24,6 +24,9 @@ public class StlMonitorService : IStlMonitorService
     public event EventHandler<StlFileEventArgs>? FileDetected;
     
     /// <inheritdoc/>
+    public event EventHandler? ScanComplete;
+    
+    /// <inheritdoc/>
     public void Start(string rootPath)
     {
         if (string.IsNullOrWhiteSpace(rootPath))
@@ -121,6 +124,9 @@ public class StlMonitorService : IStlMonitorService
             }
             
             _logger?.LogInformation("Completed initial scan of existing files");
+            
+            // Signal that initial scan is done — index can now be trained
+            ScanComplete?.Invoke(this, EventArgs.Empty);
         }
         catch (Exception ex)
         {

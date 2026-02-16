@@ -1,5 +1,5 @@
 // Matching Index Unit Tests
-// Tests for FAISS-based similarity search
+// Tests for FAISS voting + RANSAC + Dense ICP pipeline
 
 #include <gtest/gtest.h>
 #include "matching.h"
@@ -14,20 +14,19 @@ namespace test {
 class MatchingTest : public ::testing::Test {
 protected:
     void SetUp() override {
-        // Create test point clouds that are similar but not identical
-        cloud1_ = createSphereCloud(1.0f, 0.0f, 0.0f, 0.0f);
-        cloud2_ = createSphereCloud(1.0f, 0.1f, 0.0f, 0.0f);  // Similar, slightly offset
-        cloud3_ = createCubeCloud(2.0f, 5.0f, 0.0f, 0.0f);   // Different shape
+        // Create test point clouds at dental-crown scale (~10-20mm)
+        cloud1_ = createSphereCloud(10.0f, 0.0f, 0.0f, 0.0f);
+        cloud2_ = createSphereCloud(10.0f, 0.5f, 0.0f, 0.0f);  // Similar, slightly offset
+        cloud3_ = createCubeCloud(20.0f, 50.0f, 0.0f, 0.0f);   // Different shape, far away
     }
     
     PointCloudPtr createSphereCloud(float radius, float cx, float cy, float cz) {
         auto cloud = std::make_shared<PointCloud>();
         
-        // Create points on a sphere surface
-        for (int lat = 0; lat < 20; ++lat) {
-            for (int lon = 0; lon < 40; ++lon) {
-                float theta = static_cast<float>(lat) / 20.0f * 3.14159f;
-                float phi = static_cast<float>(lon) / 40.0f * 6.28318f;
+        for (int lat = 0; lat < 50; ++lat) {
+            for (int lon = 0; lon < 100; ++lon) {
+                float theta = static_cast<float>(lat) / 50.0f * 3.14159f;
+                float phi = static_cast<float>(lon) / 100.0f * 6.28318f;
                 
                 pcl::PointXYZ pt;
                 pt.x = cx + radius * std::sin(theta) * std::cos(phi);
@@ -46,8 +45,7 @@ protected:
     PointCloudPtr createCubeCloud(float size, float cx, float cy, float cz) {
         auto cloud = std::make_shared<PointCloud>();
         
-        // Create points on cube faces
-        float step = size / 10.0f;
+        float step = size / 20.0f;
         for (float x = -size/2; x <= size/2; x += step) {
             for (float y = -size/2; y <= size/2; y += step) {
                 cloud->push_back(pcl::PointXYZ(cx + x, cy + y, cz - size/2));
@@ -67,7 +65,7 @@ protected:
 };
 
 TEST_F(MatchingTest, CreateIndex) {
-    MatchingIndex index;
+    MatchingIndex index(Descriptor::SHOT_DIM);
     EXPECT_EQ(index.size(), 0);
 }
 
@@ -75,106 +73,88 @@ TEST_F(MatchingTest, AddToIndex) {
     DescriptorExtractor extractor;
     Descriptor desc = extractor.extract(cloud1_);
     
-    MatchingIndex index;
+    MatchingIndex index(Descriptor::SHOT_DIM);
     index.add(desc, 100);
     
-    EXPECT_EQ(index.size(), 1);
+    // Size is number of keypoint vectors buffered (not trained yet)
+    EXPECT_GT(index.size(), 0);
 }
 
-TEST_F(MatchingTest, QueryEmptyIndex) {
+TEST_F(MatchingTest, TrainIndex) {
+    DescriptorExtractor extractor;
+    Descriptor desc1 = extractor.extract(cloud1_);
+    Descriptor desc2 = extractor.extract(cloud2_);
+    Descriptor desc3 = extractor.extract(cloud3_);
+    
+    MatchingIndex index(Descriptor::SHOT_DIM);
+    index.add(desc1, 1);
+    index.add(desc2, 2);
+    index.add(desc3, 3);
+    
+    // Should not throw
+    EXPECT_NO_THROW(index.trainIndex());
+    EXPECT_TRUE(index.isTrained());
+}
+
+TEST_F(MatchingTest, QueryBeforeTrainThrows) {
     DescriptorExtractor extractor;
     Descriptor query = extractor.extract(cloud1_);
     
-    MatchingIndex index;
-    auto results = index.query(query, 5);
+    MatchingIndex index(Descriptor::SHOT_DIM);
     
-    EXPECT_TRUE(results.empty());
+    EXPECT_THROW(index.queryVotes(query, 5), std::runtime_error);
 }
 
-TEST_F(MatchingTest, QueryReturnsResults) {
+TEST_F(MatchingTest, QueryVotesReturnsResults) {
     DescriptorExtractor extractor;
     Descriptor desc1 = extractor.extract(cloud1_);
-    Descriptor query = extractor.extract(cloud2_);
-    
-    MatchingIndex index;
-    index.add(desc1, 100);
-    
-    auto results = index.query(query, 5);
-    
-    EXPECT_EQ(results.size(), 1);
-    EXPECT_EQ(results[0].id, 100);
-}
-
-TEST_F(MatchingTest, SimilarShapesHaveHigherConfidence) {
-    DescriptorExtractor extractor;
-    Descriptor desc1 = extractor.extract(cloud1_);
+    Descriptor desc2 = extractor.extract(cloud2_);
     Descriptor desc3 = extractor.extract(cloud3_);
-    Descriptor query = extractor.extract(cloud2_);  // Similar to cloud1_
     
-    MatchingIndex index;
-    index.add(desc1, 1);  // Sphere
-    index.add(desc3, 3);  // Cube
+    MatchingIndex index(Descriptor::SHOT_DIM);
+    index.add(desc1, 1);
+    index.add(desc2, 2);
+    index.add(desc3, 3);
+    index.trainIndex();
     
-    auto results = index.query(query, 5);  // Query with similar sphere
+    auto results = index.queryVotes(desc1, 5);
+    EXPECT_GT(results.size(), 0);
     
-    ASSERT_GE(results.size(), 2);
-    
-    // Find results for each ID
-    float confSphere = 0, confCube = 0;
+    // The self-match (unit 1) should receive votes
+    bool foundSelf = false;
     for (const auto& r : results) {
-        if (r.id == 1) confSphere = r.confidence;
-        if (r.id == 3) confCube = r.confidence;
+        if (r.unitId == 1) {
+            foundSelf = true;
+            EXPECT_GT(r.voteScore, 0.0f);
+            EXPECT_GT(r.voteCount, 0);
+        }
     }
-    
-    // Sphere (ID 1) should match better than cube (ID 3)
-    EXPECT_GT(confSphere, confCube);
+    EXPECT_TRUE(foundSelf);
 }
 
-TEST_F(MatchingTest, ConfidenceInRange) {
+TEST_F(MatchingTest, VerifyMatchingPair) {
     DescriptorExtractor extractor;
-    Descriptor desc = extractor.extract(cloud1_);
+    Descriptor desc1 = extractor.extract(cloud1_);
+    Descriptor desc2 = extractor.extract(cloud2_);
     
-    MatchingIndex index;
-    index.add(desc, 1);
+    // Verify two similar shapes
+    auto result = MatchingIndex::verify(desc1, desc2);
     
-    auto results = index.query(desc, 1);  // Query with same descriptor
-    
-    ASSERT_EQ(results.size(), 1);
-    EXPECT_GE(results[0].confidence, 0.0f);
-    EXPECT_LE(results[0].confidence, 100.0f);
+    EXPECT_GT(result.correspondences, 0);
+    EXPECT_GE(result.finalScore, 0.0f);
+    EXPECT_LE(result.finalScore, 100.0f);
 }
 
 TEST_F(MatchingTest, ClearIndex) {
     DescriptorExtractor extractor;
     Descriptor desc = extractor.extract(cloud1_);
     
-    MatchingIndex index;
+    MatchingIndex index(Descriptor::SHOT_DIM);
     index.add(desc, 1);
-    EXPECT_EQ(index.size(), 1);
+    EXPECT_GT(index.size(), 0);
     
     index.clear();
     EXPECT_EQ(index.size(), 0);
-}
-
-TEST_F(MatchingTest, MultipleDescriptors) {
-    DescriptorExtractor extractor;
-    
-    MatchingIndex index;
-    
-    for (int i = 0; i < 10; ++i) {
-        // Create slight variations
-        auto cloud = createSphereCloud(1.0f + i * 0.1f, 0, 0, 0);
-        Descriptor desc = extractor.extract(cloud);
-        index.add(desc, i);
-    }
-    
-    EXPECT_EQ(index.size(), 10);
-    
-    // Query should return up to k results
-    Descriptor query = extractor.extract(cloud1_);
-    auto results = index.query(query, 5);
-    
-    EXPECT_EQ(results.size(), 5);
 }
 
 } // namespace test

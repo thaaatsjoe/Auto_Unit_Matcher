@@ -1,127 +1,491 @@
-// FAISS Matching Engine Implementation
-// Similarity search using FAISS IndexFlat with ID mapping
+// FAISS Local Feature Voting + RANSAC + Dense ICP Matching Implementation
+// Stage 1: FAISS IndexIVFFlat voting on SHOT352 keypoints
+// Stage 2a: RANSAC geometric gatekeeper on sparse keypoints
+// Stage 2b: Dense Point-to-Plane ICP on VoxelGrid-downsampled cloud
 
 #include "matching.h"
 #include <faiss/index_io.h>
-#include <stdexcept>
-#include <cmath>
+#include <pcl/registration/correspondence_estimation.h>
+#include <pcl/registration/correspondence_rejection_sample_consensus.h>
+#include <pcl/registration/icp.h>
+#include <pcl/point_types.h>
+#include <pcl/search/kdtree.h>
 #include <algorithm>
+#include <cmath>
+#include <stdexcept>
+#include <fstream>
+#include <unordered_map>
+#include <numeric>
 
 namespace aum {
 
-MatchingIndex::MatchingIndex() {
-    // Create L2 (Euclidean distance) flat index with ID mapping
-    // Descriptor::dimension() = 33 for FPFH
-    auto baseIndex = new faiss::IndexFlatL2(Descriptor::dimension());
-    index_ = std::make_unique<faiss::IndexIDMap>(baseIndex);
-}
+// ============================================================================
+// Construction / Move
+// ============================================================================
+
+MatchingIndex::MatchingIndex(int dimension) : dimension_(dimension) {}
 
 MatchingIndex::~MatchingIndex() = default;
 
-MatchingIndex::MatchingIndex(MatchingIndex&& other) noexcept 
-    : index_(std::move(other.index_)) {}
+MatchingIndex::MatchingIndex(MatchingIndex&& other) noexcept
+    : dimension_(other.dimension_),
+      trained_(other.trained_),
+      pendingVectors_(std::move(other.pendingVectors_)),
+      pendingIds_(std::move(other.pendingIds_)),
+      quantizer_(std::move(other.quantizer_)),
+      ivfIndex_(std::move(other.ivfIndex_)) {
+    other.trained_ = false;
+}
 
 MatchingIndex& MatchingIndex::operator=(MatchingIndex&& other) noexcept {
     if (this != &other) {
-        index_ = std::move(other.index_);
+        dimension_ = other.dimension_;
+        trained_ = other.trained_;
+        pendingVectors_ = std::move(other.pendingVectors_);
+        pendingIds_ = std::move(other.pendingIds_);
+        quantizer_ = std::move(other.quantizer_);
+        ivfIndex_ = std::move(other.ivfIndex_);
+        other.trained_ = false;
     }
     return *this;
 }
 
-void MatchingIndex::add(const Descriptor& desc, int64_t id) {
-    if (!index_) {
-        throw std::runtime_error("Index not initialized");
+// ============================================================================
+// Add (buffers until train)
+// ============================================================================
+
+void MatchingIndex::add(const Descriptor& desc, int64_t unitId) {
+    auto features = desc.getFeatures();
+    if (!features || features->empty()) return;
+    
+    size_t count = desc.size();
+    
+    for (size_t i = 0; i < count; ++i) {
+        // Check for NaN (should already be filtered, but be safe)
+        bool valid = true;
+        for (int d = 0; d < dimension_; ++d) {
+            if (std::isnan((*features)[i].descriptor[d])) {
+                valid = false;
+                break;
+            }
+        }
+        if (!valid) continue;
+        
+        // Encode composite ID
+        int64_t faissId = encodeId(unitId, static_cast<int>(i));
+        
+        // Buffer the vector
+        pendingVectors_.insert(pendingVectors_.end(),
+            (*features)[i].descriptor,
+            (*features)[i].descriptor + dimension_);
+        pendingIds_.push_back(faissId);
     }
     
-    std::vector<float> vec = desc.getAggregatedVector();
-    if (vec.size() != static_cast<size_t>(Descriptor::dimension())) {
-        throw std::runtime_error("Descriptor dimension mismatch");
+    // If already trained, add directly to index
+    if (trained_ && ivfIndex_) {
+        size_t n = pendingIds_.size();
+        if (n > 0) {
+            ivfIndex_->add_with_ids(
+                static_cast<faiss::idx_t>(n),
+                pendingVectors_.data(),
+                pendingIds_.data());
+            pendingVectors_.clear();
+            pendingIds_.clear();
+        }
     }
-    
-    // FAISS add_with_ids expects array pointers
-    index_->add_with_ids(1, vec.data(), &id);
 }
 
-std::vector<MatchResult> MatchingIndex::query(const Descriptor& query, int k) {
-    if (!index_) {
-        throw std::runtime_error("Index not initialized");
+// ============================================================================
+// Train Index
+// ============================================================================
+
+void MatchingIndex::trainIndex() {
+    size_t n = pendingIds_.size();
+    if (n == 0) {
+        throw std::runtime_error("Cannot train index: no vectors added");
     }
     
-    if (index_->ntotal == 0) {
-        return {};  // Empty index, no results
+    // Calculate nlist: sqrt(n), clamped to [1, 4096]
+    int nlist = std::max(1, std::min(4096, static_cast<int>(std::sqrt(static_cast<float>(n)))));
+    
+    // Ensure we have enough vectors to train (need at least nlist * 39)
+    // If not enough, reduce nlist
+    while (nlist > 1 && n < static_cast<size_t>(nlist * 39)) {
+        nlist = std::max(1, nlist / 2);
     }
     
-    // Limit k to number of items in index
-    int actualK = std::min(k, static_cast<int>(index_->ntotal));
+    // Create quantizer and IVF index
+    quantizer_ = std::make_unique<faiss::IndexFlatL2>(dimension_);
+    ivfIndex_ = std::make_unique<faiss::IndexIVFFlat>(
+        quantizer_.get(), dimension_, nlist, faiss::METRIC_L2);
     
-    std::vector<float> queryVec = query.getAggregatedVector();
-    if (queryVec.size() != static_cast<size_t>(Descriptor::dimension())) {
-        throw std::runtime_error("Query descriptor dimension mismatch");
+    // Train on all buffered vectors
+    ivfIndex_->train(static_cast<faiss::idx_t>(n), pendingVectors_.data());
+    
+    // Add all buffered vectors with IDs
+    ivfIndex_->add_with_ids(
+        static_cast<faiss::idx_t>(n),
+        pendingVectors_.data(),
+        pendingIds_.data());
+    
+    // Set nprobe for search quality (search more clusters for better recall)
+    ivfIndex_->nprobe = std::max(1, std::min(nlist, 32));
+    
+    // Clear buffers to free memory
+    pendingVectors_.clear();
+    pendingVectors_.shrink_to_fit();
+    pendingIds_.clear();
+    pendingIds_.shrink_to_fit();
+    
+    trained_ = true;
+}
+
+// ============================================================================
+// Query Votes (Stage 1)
+// ============================================================================
+
+std::vector<VoteResult> MatchingIndex::queryVotes(
+    const Descriptor& query, int topK, int neighborsPerKeypoint) {
+    
+    if (!trained_ || !ivfIndex_) {
+        throw std::runtime_error("Index not trained — call trainIndex() first");
     }
     
-    // Allocate result arrays
-    std::vector<float> distances(actualK);
-    std::vector<int64_t> ids(actualK);
+    auto features = query.getFeatures();
+    if (!features || features->empty()) {
+        return {};
+    }
     
-    // Perform search
-    index_->search(1, queryVec.data(), actualK, distances.data(), ids.data());
+    size_t querySize = query.size();
     
-    // Convert to MatchResult
-    std::vector<MatchResult> results;
-    results.reserve(actualK);
+    // Search each query keypoint against the index
+    // For each query keypoint, find top-N nearest neighbors
+    std::vector<float> queryVectors(querySize * dimension_);
+    for (size_t i = 0; i < querySize; ++i) {
+        std::copy((*features)[i].descriptor,
+                  (*features)[i].descriptor + dimension_,
+                  &queryVectors[i * dimension_]);
+    }
     
-    for (int i = 0; i < actualK; ++i) {
-        if (ids[i] >= 0) {  // FAISS returns -1 for invalid results
-            MatchResult result;
-            result.id = ids[i];
-            result.distance = distances[i];
-            result.confidence = distanceToConfidence(distances[i]);
-            results.push_back(result);
-        }
+    // FAISS batch search
+    std::vector<float> distances(querySize * neighborsPerKeypoint);
+    std::vector<faiss::idx_t> ids(querySize * neighborsPerKeypoint);
+    
+    ivfIndex_->search(
+        static_cast<faiss::idx_t>(querySize),
+        queryVectors.data(),
+        neighborsPerKeypoint,
+        distances.data(),
+        ids.data());
+    
+    // Accumulate votes per unit ID
+    std::unordered_map<int64_t, float> voteScores;
+    std::unordered_map<int64_t, int> voteCounts;
+    
+    for (size_t i = 0; i < querySize * neighborsPerKeypoint; ++i) {
+        if (ids[i] < 0) continue;  // Invalid result
+        
+        int64_t unitId = decodeUnitId(ids[i]);
+        float dist = distances[i];
+        
+        // Weight: 1 / (1 + distance^2) — aggressive boost for perfect matches
+        float weight = 1.0f / (1.0f + dist * dist);
+        
+        voteScores[unitId] += weight;
+        voteCounts[unitId]++;
+    }
+    
+    // Convert to sorted vector
+    std::vector<VoteResult> results;
+    results.reserve(voteScores.size());
+    for (auto& [unitId, score] : voteScores) {
+        results.push_back({unitId, score, voteCounts[unitId]});
+    }
+    
+    // Sort by vote score descending
+    std::sort(results.begin(), results.end(),
+        [](const VoteResult& a, const VoteResult& b) {
+            return a.voteScore > b.voteScore;
+        });
+    
+    // Take top K
+    if (static_cast<int>(results.size()) > topK) {
+        results.resize(topK);
     }
     
     return results;
 }
 
-size_t MatchingIndex::size() const {
-    return index_ ? static_cast<size_t>(index_->ntotal) : 0;
-}
+// ============================================================================
+// Geometric Verification (Stage 2): RANSAC Gatekeeper + Dense ICP
+// ============================================================================
 
-void MatchingIndex::clear() {
-    // Recreate the index to clear it
-    auto baseIndex = new faiss::IndexFlatL2(Descriptor::dimension());
-    index_ = std::make_unique<faiss::IndexIDMap>(baseIndex);
-}
-
-void MatchingIndex::save(const std::string& path) const {
-    if (!index_) {
-        throw std::runtime_error("Cannot save: index not initialized");
+VerificationResult MatchingIndex::verify(
+    const Descriptor& query,
+    const Descriptor& candidate,
+    float ransacThreshold,
+    float icpMaxCorrespondenceDist,
+    float icpFitnessDecay) {
+    
+    VerificationResult result = {};
+    
+    auto queryKeypoints = query.getKeypoints();
+    auto queryFeatures = query.getFeatures();
+    auto candidateKeypoints = candidate.getKeypoints();
+    auto candidateFeatures = candidate.getFeatures();
+    
+    if (!queryKeypoints || queryKeypoints->empty() ||
+        !candidateKeypoints || candidateKeypoints->empty()) {
+        return result;
     }
-    faiss::write_index(index_.get(), path.c_str());
-}
-
-MatchingIndex MatchingIndex::load(const std::string& path) {
-    MatchingIndex result;
-    faiss::Index* loadedIndex = faiss::read_index(path.c_str());
-    result.index_.reset(dynamic_cast<faiss::IndexIDMap*>(loadedIndex));
-    if (!result.index_) {
-        delete loadedIndex;
-        throw std::runtime_error("Loaded index is not an IndexIDMap");
+    
+    // ================================================================
+    // Stage 2a: RANSAC on sparse keypoints (GATEKEEPER)
+    // Purpose: Coarse transform estimation. If < 12 inliers, reject
+    //          immediately without running expensive Dense ICP.
+    // ================================================================
+    
+    // --- Build SHOT feature correspondences ---
+    // For each query keypoint SHOT descriptor, find nearest in candidate
+    
+    size_t qSize = query.size();
+    size_t cSize = candidate.size();
+    
+    // Build candidate SHOT matrix
+    std::vector<float> candidateMatrix(cSize * Descriptor::SHOT_DIM);
+    for (size_t i = 0; i < cSize; ++i) {
+        std::copy((*candidateFeatures)[i].descriptor,
+                  (*candidateFeatures)[i].descriptor + Descriptor::SHOT_DIM,
+                  &candidateMatrix[i * Descriptor::SHOT_DIM]);
     }
+    
+    // For each query SHOT, find nearest candidate SHOT (brute-force L2)
+    // Apply Lowe's Ratio Test: reject if best/secondBest > 0.8
+    constexpr float RATIO_THRESHOLD = 0.8f;
+    pcl::Correspondences correspondences;
+    for (size_t qi = 0; qi < qSize; ++qi) {
+        float bestDist = std::numeric_limits<float>::max();
+        float secondBestDist = std::numeric_limits<float>::max();
+        int bestIdx = -1;
+        
+        const float* qDesc = (*queryFeatures)[qi].descriptor;
+        for (size_t ci = 0; ci < cSize; ++ci) {
+            float dist = 0.0f;
+            const float* cDesc = &candidateMatrix[ci * Descriptor::SHOT_DIM];
+            for (int d = 0; d < Descriptor::SHOT_DIM; ++d) {
+                float diff = qDesc[d] - cDesc[d];
+                dist += diff * diff;
+            }
+            if (dist < bestDist) {
+                secondBestDist = bestDist;
+                bestDist = dist;
+                bestIdx = static_cast<int>(ci);
+            } else if (dist < secondBestDist) {
+                secondBestDist = dist;
+            }
+        }
+        
+        // Lowe's Ratio Test: only accept if best match is significantly
+        // better than second-best (i.e., the feature is distinctive)
+        if (bestIdx >= 0 && bestDist < RATIO_THRESHOLD * secondBestDist) {
+            pcl::Correspondence corr;
+            corr.index_query = static_cast<int>(qi);
+            corr.index_match = bestIdx;
+            corr.distance = bestDist;
+            correspondences.push_back(corr);
+        }
+    }
+    
+    result.correspondences = static_cast<int>(correspondences.size());
+    if (correspondences.empty()) {
+        return result;
+    }
+    
+    // --- RANSAC outlier rejection ---
+    pcl::registration::CorrespondenceRejectorSampleConsensus<pcl::PointXYZ> ransac;
+    ransac.setInputSource(queryKeypoints);
+    ransac.setInputTarget(candidateKeypoints);
+    ransac.setInlierThreshold(ransacThreshold);
+    ransac.setMaximumIterations(1000);
+    ransac.setInputCorrespondences(
+        std::make_shared<pcl::Correspondences>(correspondences));
+    
+    pcl::Correspondences inlierCorrespondences;
+    ransac.getCorrespondences(inlierCorrespondences);
+    
+    result.ransacInliers = static_cast<int>(inlierCorrespondences.size());
+    result.ransacInlierRatio = correspondences.empty() ? 0.0f :
+        static_cast<float>(inlierCorrespondences.size()) / 
+        static_cast<float>(correspondences.size());
+    
+    // GATEKEEPER: Absolute inlier minimum = 12
+    // A rigid body match of complex dental anatomy requires at least 12
+    // distinct spatial points aligning. Fewer means RANSAC fit random noise.
+    // DO NOT run expensive Dense ICP for rejected candidates.
+    if (inlierCorrespondences.size() < 12) {
+        result.finalScore = 0.0f;
+        result.icpFitnessScore = std::numeric_limits<float>::max();
+        return result;
+    }
+    
+    // Get the RANSAC transformation (seed for Dense ICP)
+    Eigen::Matrix4f ransacTransform = ransac.getBestTransformation();
+    
+    // ================================================================
+    // Stage 2b: Dense Point-to-Plane ICP
+    // Uses the full VoxelGrid-downsampled cloud (thousands of points)
+    // with normals computed at sharp radius (0.5mm) for micro-anatomy.
+    //
+    // CRITICAL GUARDRAILS:
+    // 1. Source = Scan (partial, exterior only)
+    //    Target = DB STL (full, exterior + intaglio)
+    //    Reversing this evaluates hidden intaglio → massive error → fail
+    //
+    // 2. MaxCorrespondenceDistance = 0.5mm
+    //    Prevents pairing scan edges with intaglio cavity points
+    //
+    // 3. Point-to-Plane ICP (not Point-to-Point)
+    //    Point-to-Point slides on smooth organic surfaces
+    //    Point-to-Plane locks into cusp/fissure topology
+    // ================================================================
+    
+    // Check both descriptors have dense clouds
+    if (!query.hasDenseCloud() || !candidate.hasDenseCloud()) {
+        // Fallback: sparse ICP (legacy SH01 data, rare)
+        pcl::IterativeClosestPoint<pcl::PointXYZ, pcl::PointXYZ> icp;
+        icp.setInputSource(queryKeypoints);
+        icp.setInputTarget(candidateKeypoints);
+        icp.setMaxCorrespondenceDistance(icpMaxCorrespondenceDist);
+        icp.setMaximumIterations(50);
+        icp.setTransformationEpsilon(1e-8);
+        icp.setEuclideanFitnessEpsilon(1e-6);
+        
+        PointCloud aligned;
+        icp.align(aligned, ransacTransform);
+        
+        result.icpFitnessScore = static_cast<float>(icp.getFitnessScore());
+        float icpQuality = std::exp(-result.icpFitnessScore / icpFitnessDecay);
+        result.finalScore = std::max(0.0f, std::min(100.0f, 100.0f * icpQuality));
+        return result;
+    }
+    
+    // --- Build PointNormal clouds for Point-to-Plane ICP ---
+    auto queryDenseCloud = query.getDenseCloud();
+    auto queryDenseNormals = query.getDenseNormals();
+    auto candidateDenseCloud = candidate.getDenseCloud();
+    auto candidateDenseNormals = candidate.getDenseNormals();
+    
+    // Combine XYZ + Normals into PointNormal type for ICP
+    auto sourceCloud = std::make_shared<PointNormalCloud>();
+    sourceCloud->resize(queryDenseCloud->size());
+    for (size_t i = 0; i < queryDenseCloud->size(); ++i) {
+        (*sourceCloud)[i].x = (*queryDenseCloud)[i].x;
+        (*sourceCloud)[i].y = (*queryDenseCloud)[i].y;
+        (*sourceCloud)[i].z = (*queryDenseCloud)[i].z;
+        (*sourceCloud)[i].normal_x = (*queryDenseNormals)[i].normal_x;
+        (*sourceCloud)[i].normal_y = (*queryDenseNormals)[i].normal_y;
+        (*sourceCloud)[i].normal_z = (*queryDenseNormals)[i].normal_z;
+        (*sourceCloud)[i].curvature = (*queryDenseNormals)[i].curvature;
+    }
+    
+    auto targetCloud = std::make_shared<PointNormalCloud>();
+    targetCloud->resize(candidateDenseCloud->size());
+    for (size_t i = 0; i < candidateDenseCloud->size(); ++i) {
+        (*targetCloud)[i].x = (*candidateDenseCloud)[i].x;
+        (*targetCloud)[i].y = (*candidateDenseCloud)[i].y;
+        (*targetCloud)[i].z = (*candidateDenseCloud)[i].z;
+        (*targetCloud)[i].normal_x = (*candidateDenseNormals)[i].normal_x;
+        (*targetCloud)[i].normal_y = (*candidateDenseNormals)[i].normal_y;
+        (*targetCloud)[i].normal_z = (*candidateDenseNormals)[i].normal_z;
+        (*targetCloud)[i].curvature = (*candidateDenseNormals)[i].curvature;
+    }
+    
+    // --- Point-to-Plane ICP ---
+    // GUARDRAIL 1: Source = scan (partial), Target = DB STL (full)
+    // GUARDRAIL 2: MaxCorrespondenceDistance = 0.5mm (pull-through prevention)
+    // GUARDRAIL 3: Point-to-Plane (IterativeClosestPointWithNormals)
+    pcl::IterativeClosestPointWithNormals<pcl::PointNormal, pcl::PointNormal> icp;
+    icp.setInputSource(sourceCloud);     // Scan = SOURCE (partial, exterior)
+    icp.setInputTarget(targetCloud);     // DB STL = TARGET (full, exterior+intaglio)
+    icp.setMaxCorrespondenceDistance(icpMaxCorrespondenceDist);  // 0.5mm
+    icp.setMaximumIterations(50);
+    icp.setTransformationEpsilon(1e-8);
+    icp.setEuclideanFitnessEpsilon(1e-6);
+    
+    PointNormalCloud aligned;
+    icp.align(aligned, ransacTransform);  // Use RANSAC transform as initial seed
+    
+    result.icpFitnessScore = static_cast<float>(icp.getFitnessScore());
+    
+    // ================================================================
+    // Scoring: ICP fitness is the SOLE discriminator
+    // Score = 100 * exp(-fitness / icpFitnessDecay)
+    // icpFitnessDecay is configurable (default 0.5) — tunable from
+    // C# UI without recompiling C++ engine
+    //
+    // Dense Point-to-Plane ICP expected values:
+    //   Correct match:  fitness 0.1–0.3mm²  → score 55–82%
+    //   Marginal match: fitness 0.3–0.6mm²  → score 30–55%
+    //   Wrong match:    fitness > 1.0mm²     → score < 14%
+    // ================================================================
+    
+    float icpQuality = std::exp(-result.icpFitnessScore / icpFitnessDecay);
+    result.finalScore = std::max(0.0f, std::min(100.0f, 100.0f * icpQuality));
+    
     return result;
 }
 
-float MatchingIndex::distanceToConfidence(float distance) const {
-    // Convert L2 distance to confidence percentage
-    // Distance of 0 = 100% confidence
-    // Using exponential decay: confidence = 100 * exp(-distance * scale)
-    // Tuned so that distance of 0.5 gives ~60% confidence
+// ============================================================================
+// Size / Clear
+// ============================================================================
+
+size_t MatchingIndex::size() const {
+    size_t total = pendingIds_.size();
+    if (ivfIndex_) {
+        total += static_cast<size_t>(ivfIndex_->ntotal);
+    }
+    return total;
+}
+
+void MatchingIndex::clear() {
+    pendingVectors_.clear();
+    pendingVectors_.shrink_to_fit();
+    pendingIds_.clear();
+    pendingIds_.shrink_to_fit();
+    ivfIndex_.reset();
+    quantizer_.reset();
+    trained_ = false;
+}
+
+// ============================================================================
+// Save / Load
+// ============================================================================
+
+void MatchingIndex::save(const std::string& path) const {
+    if (!trained_ || !ivfIndex_) {
+        throw std::runtime_error("Cannot save untrained index");
+    }
+    faiss::write_index(ivfIndex_.get(), path.c_str());
+}
+
+MatchingIndex MatchingIndex::load(const std::string& path) {
+    auto* rawIndex = faiss::read_index(path.c_str());
+    auto* ivf = dynamic_cast<faiss::IndexIVFFlat*>(rawIndex);
+    if (!ivf) {
+        delete rawIndex;
+        throw std::runtime_error("Loaded index is not IndexIVFFlat");
+    }
     
-    const float scale = 1.0f;  // Adjust based on typical distances
-    float confidence = 100.0f * std::exp(-distance * scale);
+    MatchingIndex result(ivf->d);
+    result.ivfIndex_.reset(ivf);
+    // The quantizer is owned by the IVF index after loading
+    result.quantizer_.reset(); // Don't double-own it
+    result.trained_ = true;
     
-    // Clamp to [0, 100]
-    return std::max(0.0f, std::min(100.0f, confidence));
+    // Set nprobe
+    result.ivfIndex_->nprobe = std::max(1, std::min(static_cast<int>(ivf->nlist), 32));
+    
+    return result;
 }
 
 } // namespace aum

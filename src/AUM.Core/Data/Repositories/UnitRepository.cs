@@ -169,6 +169,30 @@ public class UnitRepository : IUnitRepository
         return Convert.ToInt32(result);
     }
 
+    /// <inheritdoc/>
+    public async Task<long> UpsertByStlPathAsync(Unit entity)
+    {
+        var connection = _context.CreateConnection();
+        using var command = connection.CreateCommand();
+        
+        command.CommandText = @"
+            INSERT INTO units (case_id, stl_path, descriptor_blob, created_at)
+            VALUES (@caseId, @stlPath, @blob, @createdAt)
+            ON CONFLICT(stl_path) DO UPDATE SET
+                case_id = @caseId,
+                descriptor_blob = @blob,
+                created_at = @createdAt;
+            SELECT id FROM units WHERE stl_path = @stlPath;";
+        
+        command.Parameters.AddWithValue("@caseId", entity.CaseId);
+        command.Parameters.AddWithValue("@stlPath", entity.StlPath);
+        command.Parameters.AddWithValue("@blob", entity.DescriptorBlob);
+        command.Parameters.AddWithValue("@createdAt", entity.CreatedAt.ToString("o"));
+        
+        var result = await command.ExecuteScalarAsync();
+        return Convert.ToInt64(result);
+    }
+
     private static Unit MapToUnit(SqliteDataReader reader)
     {
         return new Unit

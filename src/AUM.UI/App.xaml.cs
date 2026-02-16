@@ -84,10 +84,30 @@ public partial class App : Application
         Directory.CreateDirectory(appData);
         
         var databasePath = Path.Combine(appData, "fingerprints.db");
-        var indexPath = Path.Combine(appData, "index.faiss");
+        
+        // Clean up legacy files — v4.0 no longer uses codebook or persisted index
+        foreach (var legacyFile in new[] { "index.faiss", "codebook.bin" })
+        {
+            var legacyPath = Path.Combine(appData, legacyFile);
+            if (File.Exists(legacyPath))
+            {
+                try
+                {
+                    File.Delete(legacyPath);
+                    Log.Information("Deleted legacy file {Path}", legacyPath);
+                }
+                catch (Exception ex)
+                {
+                    Log.Warning(ex, "Could not delete legacy file {Path}", legacyPath);
+                }
+            }
+        }
         
         // Add AUM.Core services
-        services.AddAumCore(databasePath, indexPath);
+        services.AddAumCore(databasePath);
+        
+        // Bridge Serilog to Microsoft.Extensions.Logging so ILogger<T> works in services
+        services.AddLogging(builder => builder.AddSerilog(dispose: false));
         
         // Add UI services
         services.AddSingleton<ISessionService, SessionService>();
@@ -133,6 +153,22 @@ public partial class App : Application
         // Track user activity for session timeout
         mainWindow.PreviewMouseMove += (s, e) => _sessionService?.ResetInactivityTimer();
         mainWindow.PreviewKeyDown += (s, e) => _sessionService?.ResetInactivityTimer();
+        
+        // Wire Settings window opener
+        mainVm.SettingsRequested += (s, e) =>
+        {
+            var unitRepo = _serviceProvider?.GetService<IUnitRepository>();
+            var indexService = _serviceProvider?.GetService<IIndexService>();
+            var settingsVm = new SettingsViewModel(unitRepo, indexService);
+            var settingsWindow = new SettingsWindow
+            {
+                DataContext = settingsVm,
+                Owner = mainWindow
+            };
+            
+            settingsVm.SettingsSaved += (_, _) => settingsWindow.Close();
+            settingsWindow.ShowDialog();
+        };
         
         Log.Information("Showing main window");
         mainWindow.Show();
@@ -184,13 +220,36 @@ public partial class App : Application
             }
             
             var json = File.ReadAllText(settingsPath);
-            var settings = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, string>>(json);
+            Log.Debug("Raw settings.json content: {Json}", json);
             
-            if (settings == null || !settings.TryGetValue("StlRootPath", out var stlRootPath))
+            System.Text.Json.JsonElement root;
+            try
+            {
+                using var doc = System.Text.Json.JsonDocument.Parse(json);
+                root = doc.RootElement.Clone();
+            }
+            catch (System.Text.Json.JsonException jsonEx)
+            {
+                Log.Error(jsonEx, "settings.json contains invalid JSON. Path: {SettingsPath}", settingsPath);
+                MessageBox.Show(
+                    $"STL root path settings file is corrupted.\n\n" +
+                    $"Please reconfigure via Settings or delete:\n{settingsPath}\n\n" +
+                    $"Error: {jsonEx.Message}",
+                    "Configuration Error", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+            
+            if (!root.TryGetProperty("StlRootPath", out var stlProp))
             {
                 Log.Warning("STL root path not configured");
                 return;
             }
+            
+            var stlRootPath = stlProp.GetString();
+            
+            // Normalize path (trim whitespace, ensure proper UNC format)
+            stlRootPath = stlRootPath.Trim();
+            Log.Information("Configured STL root path: {Path}", stlRootPath);
             
             if (!Directory.Exists(stlRootPath))
             {
@@ -200,6 +259,26 @@ public partial class App : Application
             
             // Wire up event handler for new STL files
             stlMonitor.FileDetected += OnStlFileDetected;
+            
+            // After initial scan completes, rebuild/retrain the FAISS index
+            // so that all newly registered units are searchable
+            stlMonitor.ScanComplete += async (_, _) =>
+            {
+                try
+                {
+                    var indexService = _serviceProvider?.GetService<IIndexService>();
+                    if (indexService != null)
+                    {
+                        Log.Information("Initial scan complete — rebuilding FAISS index");
+                        await indexService.RebuildAsync();
+                        Log.Information("FAISS index rebuilt and trained with {Count} entries", indexService.Count);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Log.Error(ex, "Failed to rebuild index after initial scan");
+                }
+            };
             
             // Start monitoring
             stlMonitor.Start(stlRootPath);
@@ -238,7 +317,7 @@ public partial class App : Application
                 }
             }
             
-            // Register the unit (extracts FPFH descriptors)
+            // Register the unit (extracts ISS+SHOT352+DenseCloud descriptors)
             await unitService.RegisterUnitAsync(e.FilePath, e.CaseId);
             
             Log.Information("Successfully registered STL: {Path}", e.FilePath);
@@ -329,6 +408,9 @@ public partial class App : Application
     protected override void OnExit(ExitEventArgs e)
     {
         Log.Information("Application shutting down");
+        
+        // Index is ephemeral — no save needed on exit (rebuilt from DB on startup)
+
         
         // Stop STL monitoring
         var stlMonitor = _serviceProvider?.GetService<IStlMonitorService>();

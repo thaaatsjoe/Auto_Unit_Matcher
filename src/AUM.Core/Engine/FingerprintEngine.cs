@@ -1,3 +1,4 @@
+using System.Threading;
 using AUM.Core.Interop;
 using Microsoft.Extensions.Logging;
 
@@ -5,24 +6,29 @@ namespace AUM.Core.Engine;
 
 /// <summary>
 /// High-level wrapper for the native fingerprint engine.
-/// Provides managed API with automatic resource cleanup.
+/// v4.0: ISS Keypoints + SHOT352 + FAISS Voting + RANSAC + Dense Point-to-Plane ICP
+/// No codebook required — local features indexed directly in FAISS.
 /// </summary>
 public sealed class FingerprintEngine : IFingerprintEngine
 {
     private readonly ILogger<FingerprintEngine>? _logger;
+    private readonly SemaphoreSlim _indexLock = new(1, 1);
     private IndexHandle? _index;
     private int _indexCount;
     private bool _disposed;
     
     /// <summary>
-    /// Creates a new FingerprintEngine with an empty index.
+    /// Creates a new FingerprintEngine with a FAISS voting index.
+    /// No codebook needed — SHOT352 features indexed directly.
     /// </summary>
     public FingerprintEngine(ILogger<FingerprintEngine>? logger = null)
     {
         _logger = logger;
+        
+        // Create empty index
         _index = IndexHandle.Create();
         _indexCount = 0;
-        _logger?.LogInformation("FingerprintEngine initialized with version {Version}", Version);
+        _logger?.LogInformation("FingerprintEngine v{Version} initialized (ISS+SHOT352+Voting+DenseICP)", Version);
     }
     
     /// <inheritdoc/>
@@ -39,7 +45,7 @@ public sealed class FingerprintEngine : IFingerprintEngine
         if (string.IsNullOrWhiteSpace(stlPath))
             throw new ArgumentException("STL path cannot be null or empty", nameof(stlPath));
         
-        _logger?.LogDebug("Extracting descriptor from {Path}", stlPath);
+        _logger?.LogDebug("Extracting ISS+SHOT352+DenseCloud descriptor from {Path}", stlPath);
         
         // Parse STL file
         var parseResult = NativeMethods.aum_parse_stl(stlPath, out var pointCloudPtr);
@@ -48,21 +54,21 @@ public sealed class FingerprintEngine : IFingerprintEngine
         using var pointCloud = new PointCloudHandle(pointCloudPtr);
         _logger?.LogDebug("Parsed STL with {Count} points", pointCloud.PointCount);
         
-        // Extract descriptors
+        // Extract ISS keypoints + SHOT352 descriptors + dense cloud
         var extractResult = NativeMethods.aum_extract_descriptors(pointCloud.DangerousGetHandle(), out var descriptorPtr);
         EngineException.ThrowIfError(extractResult);
         
         using var descriptor = new DescriptorHandle(descriptorPtr);
         
-        // Serialize to blob
+        // Serialize to SH02 blob (keypoints + SHOT + dense cloud + normals)
         var blob = descriptor.Serialize();
-        _logger?.LogDebug("Extracted descriptor blob of {Size} bytes", blob.Length);
+        _logger?.LogDebug("Extracted descriptor: {Size} bytes (SH02 format)", blob.Length);
         
         return blob;
     }
     
     /// <inheritdoc/>
-    public MatchResult[] Query(byte[] descriptor, int topK = 5)
+    public VoteResult[] QueryVotes(byte[] descriptor, int topK = 10)
     {
         ThrowIfDisposed();
         
@@ -73,13 +79,43 @@ public sealed class FingerprintEngine : IFingerprintEngine
         if (_index == null || _index.IsInvalid)
             throw new InvalidOperationException("Index is not initialized");
         
-        _logger?.LogDebug("Querying index for top {K} matches", topK);
+        _logger?.LogDebug("Stage 1: Voting for top {K} candidates", topK);
         
-        using var queryDescriptor = DescriptorHandle.Deserialize(descriptor);
-        var results = _index.Query(queryDescriptor, topK);
+        _indexLock.Wait();
+        try
+        {
+            using var queryDescriptor = DescriptorHandle.Deserialize(descriptor);
+            var results = _index.QueryVotes(queryDescriptor, topK);
+            
+            _logger?.LogDebug("Vote query returned {Count} candidates", results.Length);
+            return results;
+        }
+        finally
+        {
+            _indexLock.Release();
+        }
+    }
+    
+    /// <inheritdoc/>
+    public VerificationResult Verify(byte[] queryDescriptor, byte[] candidateDescriptor)
+    {
+        ThrowIfDisposed();
         
-        _logger?.LogDebug("Query returned {Count} results", results.Length);
-        return results;
+        if (queryDescriptor == null || queryDescriptor.Length == 0)
+            throw new ArgumentException("Query descriptor cannot be null or empty", nameof(queryDescriptor));
+        if (candidateDescriptor == null || candidateDescriptor.Length == 0)
+            throw new ArgumentException("Candidate descriptor cannot be null or empty", nameof(candidateDescriptor));
+        
+        using var queryHandle = DescriptorHandle.Deserialize(queryDescriptor);
+        using var candidateHandle = DescriptorHandle.Deserialize(candidateDescriptor);
+        
+        var result = IndexHandle.Verify(queryHandle, candidateHandle);
+        
+        _logger?.LogDebug("Verification: RANSAC={Inliers}/{Corr} ({Ratio:P0}), DenseICP={Fitness:F4}, Final={Score:F1}%",
+            result.RansacInliers, result.Correspondences, result.RansacInlierRatio,
+            result.IcpFitnessScore, result.FinalScore);
+        
+        return result;
     }
     
     /// <inheritdoc/>
@@ -92,11 +128,38 @@ public sealed class FingerprintEngine : IFingerprintEngine
         if (_index == null || _index.IsInvalid)
             throw new InvalidOperationException("Index is not initialized");
         
-        using var desc = DescriptorHandle.Deserialize(descriptor);
-        _index.Add(desc, id);
-        _indexCount++;
+        _indexLock.Wait();
+        try
+        {
+            using var desc = DescriptorHandle.Deserialize(descriptor);
+            _index.Add(desc, id);
+            _indexCount++;
+            
+            _logger?.LogDebug("Added unit {Id} to index (total units: {Count})", id, _indexCount);
+        }
+        finally
+        {
+            _indexLock.Release();
+        }
+    }
+    
+    /// <inheritdoc/>
+    public void ClearIndex()
+    {
+        ThrowIfDisposed();
         
-        _logger?.LogDebug("Added entry {Id} to index (total: {Count})", id, _indexCount);
+        _indexLock.Wait();
+        try
+        {
+            _index?.Dispose();
+            _index = IndexHandle.Create();
+            _indexCount = 0;
+            _logger?.LogInformation("Index cleared and recreated");
+        }
+        finally
+        {
+            _indexLock.Release();
+        }
     }
     
     /// <inheritdoc/>
@@ -107,9 +170,9 @@ public sealed class FingerprintEngine : IFingerprintEngine
         if (_index == null || _index.IsInvalid)
             throw new InvalidOperationException("Index is not initialized");
         
-        _logger?.LogInformation("Training index with {Count} entries", _indexCount);
+        _logger?.LogInformation("Training IVF index with {Count} units' keypoints", _indexCount);
         _index.Train();
-        _logger?.LogInformation("Index training complete");
+        _logger?.LogInformation("IVF index training complete");
     }
     
     /// <inheritdoc/>
@@ -161,6 +224,8 @@ public sealed class FingerprintEngine : IFingerprintEngine
         
         _index?.Dispose();
         _index = null;
+        
+        _indexLock.Dispose();
         _disposed = true;
         
         _logger?.LogInformation("FingerprintEngine disposed");

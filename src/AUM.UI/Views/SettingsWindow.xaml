@@ -5,7 +5,7 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         mc:Ignorable="d"
         Title="Settings" 
-        Height="500" Width="600"
+        Height="580" Width="620"
         WindowStartupLocation="CenterOwner"
         Background="{DynamicResource BackgroundBrush}">
     
@@ -13,6 +13,7 @@
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
         
@@ -56,14 +57,20 @@
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="Auto" />
                             <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
                         </Grid.ColumnDefinitions>
                         
-                        <TextBlock Text="Confidence Threshold (%):" VerticalAlignment="Center" Margin="0,0,8,0" />
+                        <TextBlock Text="Confidence Threshold:" VerticalAlignment="Center" Margin="0,0,8,0" />
                         <Slider Grid.Column="1" 
                                 Minimum="50" Maximum="99" 
                                 Value="{Binding ConfidenceThreshold}"
                                 TickFrequency="5" 
-                                IsSnapToTickEnabled="True" />
+                                IsSnapToTickEnabled="True"
+                                Margin="0,0,8,0" />
+                        <TextBlock Grid.Column="2" 
+                                   Text="{Binding ConfidenceThreshold, StringFormat={}{0}%}" 
+                                   VerticalAlignment="Center"
+                                   MinWidth="35" />
                     </Grid>
                 </Border>
                 
@@ -71,6 +78,37 @@
                 <TextBlock Text="Audio" FontWeight="Bold" FontSize="14" Margin="0,0,0,8" />
                 <Border Background="{DynamicResource SurfaceBrush}" CornerRadius="4" Padding="12" Margin="0,0,0,16">
                     <CheckBox Content="Enable audio feedback" IsChecked="{Binding AudioEnabled}" />
+                </Border>
+                
+                <!-- System Info Section -->
+                <TextBlock Text="System" FontWeight="Bold" FontSize="14" Margin="0,0,0,8" />
+                <Border Background="{DynamicResource SurfaceBrush}" CornerRadius="4" Padding="12" Margin="0,0,0,16">
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="8" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        
+                        <TextBlock Text="Units in Database:" VerticalAlignment="Center" Margin="0,0,12,4" />
+                        <TextBlock Grid.Column="1" Text="{Binding UnitCount}" FontWeight="SemiBold" Margin="0,0,0,4" />
+                        
+                        <TextBlock Grid.Row="1" Text="Index Entries:" VerticalAlignment="Center" Margin="0,0,12,0" />
+                        <TextBlock Grid.Row="1" Grid.Column="1" VerticalAlignment="Center"
+                                   Text="{Binding IndexCount}" FontWeight="SemiBold" />
+                        
+                        <Button Grid.Row="3" Grid.ColumnSpan="3"
+                                Content="Rebuild Index" 
+                                Command="{Binding RebuildIndexCommand}"
+                                HorizontalAlignment="Left" 
+                                Padding="16,6" />
+                    </Grid>
                 </Border>
                 
                 <!-- Backup Section -->
@@ -84,16 +122,25 @@
             </StackPanel>
         </ScrollViewer>
         
+        <!-- Status Bar -->
+        <TextBlock Grid.Row="2" 
+                   Text="{Binding StatusMessage}" 
+                   Foreground="{DynamicResource SecondaryTextBrush}"
+                   FontStyle="Italic"
+                   Margin="0,8,0,0" />
+        
         <!-- Actions -->
-        <StackPanel Grid.Row="2" 
+        <StackPanel Grid.Row="3" 
                     Orientation="Horizontal" 
                     HorizontalAlignment="Right"
-                    Margin="0,16,0,0">
+                    Margin="0,12,0,0">
             <Button Content="Save" 
                     Command="{Binding SaveCommand}"
+                    Padding="20,6"
                     Margin="0,0,8,0" />
             <Button Content="Cancel" 
-                    Click="CancelButton_Click" />
+                    Click="CancelButton_Click"
+                    Padding="20,6" />
         </StackPanel>
     </Grid>
 </Window>

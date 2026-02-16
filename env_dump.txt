@@ -1,0 +1,76 @@
+﻿
+Name                           Value                                                                  
+----                           -----                                                                  
+ACSvcPort                      17532                                                                  
+ALLUSERSPROFILE                C:\ProgramData                                                         
+ANTIGRAVITY_AGENT              1                                                                      
+ANTIGRAVITY_CLI_ALIAS          agy                                                                    
+APPDATA                        C:\Users\Joseph.Lucio\AppData\Roaming                                  
+ATLANTIS_PUBLIC                C:\Users\Public\AstraTech                                              
+ChocolateyInstall              C:\ProgramData\chocolatey                                              
+ChocolateyLastPathUpdate       133251067191113645                                                     
+CHROME_CRASHPAD_PIPE_NAME      \\.\pipe\crashpad_34828_QHYXYAHADQHVVAHS                               
+COLORTERM                      truecolor                                                              
+CommonProgramFiles             C:\Program Files\Common Files                                          
+CommonProgramFiles(x86)        C:\Program Files (x86)\Common Files                                    
+CommonProgramW6432             C:\Program Files\Common Files                                          
+COMPUTERNAME                   SKDLA-2083                                                             
+ComSpec                        C:\Windows\system32\cmd.exe                                            
+CUDA_PATH                      C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.5               
+CUDA_PATH_V12_5                C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.5               
+DriverData                     C:\Windows\System32\Drivers\DriverData                                 
+GameFirstUserPath              C:\ProgramData\ASUS\GameFirst                                          
+GameTurbo                      C:\Program Files (x86)\ASUS\GameFirst\                                 
+GIT_ASKPASS                    c:\Users\Joseph.Lucio\AppData\Local\Programs\Antigravity\resources\a...
+HOMEDRIVE                      C:                                                                     
+HOMEPATH                       \Users\Joseph.Lucio                                                    
+INTEL_DEV_REDIST               C:\Program Files (x86)\Common Files\Intel\Shared Libraries\            
+KEYSHOT_EXTERNAL_LICENSE_FO... C:\Program Files\Siemens\Solid Edge 2024\Program                       
+KEYSHOT12                      C:\Users\Public\Documents\KeyShot 12                                   
+LANG                           en_US.UTF-8                                                            
+LOCALAPPDATA                   C:\Users\Joseph.Lucio\AppData\Local                                    
+LOGONSERVER                    \\SKDLA-2083                                                           
+MIC_LD_LIBRARY_PATH            C:\Program Files (x86)\Common Files\Intel\Shared Libraries\compiler\...
+NUMBER_OF_PROCESSORS           24                                                                     
+OneDrive                       C:\Users\Joseph.Lucio\OneDrive - The Dental Alliance                   
+OneDriveCommercial             C:\Users\Joseph.Lucio\OneDrive - The Dental Alliance                   
+OS                             Windows_NT                                                             
+P_SCHEMA                       C:\Program Files\Siemens\Solid Edge 2024\Schema                        
+PAGER                          cat                                                                    
+Path                           C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.5\bin;C:\Prog...
+PATHEXT                        .COM;.EXE;.BAT;.CMD;.VBS;.VBE;.JS;.JSE;.WSF;.WSH;.MSC;.CPL             
+PROCESSOR_ARCHITECTURE         AMD64                                                                  
+PROCESSOR_IDENTIFIER           Intel64 Family 6 Model 151 Stepping 2, GenuineIntel                    
+PROCESSOR_LEVEL                6                                                                      
+PROCESSOR_REVISION             9702                                                                   
+ProgramData                    C:\ProgramData                                                         
+ProgramFiles                   C:\Program Files                                                       
+ProgramFiles(x86)              C:\Program Files (x86)                                                 
+ProgramW6432                   C:\Program Files                                                       
+PSModulePath                   C:\Users\Joseph.Lucio\OneDrive - The Dental Alliance\Documents\Windo...
+PUBLIC                         C:\Users\Public                                                        
+RlsSvcPort                     22112                                                                  
+SE_LICENSE_SERVER              C:\Program Files\Siemens\Solid Edge 2024\Preferences\SELicense.lic     
+SESSIONNAME                    Console                                                                
+SIEMENS_CONNECTOR_INSTALL_PATH C:\Program Files\Siemens\Connector                                     
+SystemDrive                    C:                                                                     
+SystemRoot                     C:\Windows                                                             
+TEMP                           C:\Users\JOSEPH~1.LUC\AppData\Local\Temp                               
+TERM_PROGRAM                   vscode                                                                 
+TERM_PROGRAM_VERSION           1.107.0                                                                
+TMP                            C:\Users\JOSEPH~1.LUC\AppData\Local\Temp                               
+USERDNSDOMAIN                  killiandental.com                                                      
+USERDOMAIN                     KILLIAN                                                                
+USERDOMAIN_ROAMINGPROFILE      KILLIAN                                                                
+USERNAME                       Joseph.Lucio                                                           
+USERPROFILE                    C:\Users\Joseph.Lucio                                                  
+VSCODE_GIT_ASKPASS_EXTRA_ARGS                                                                         
+VSCODE_GIT_ASKPASS_MAIN        c:\Users\Joseph.Lucio\AppData\Local\Programs\Antigravity\resources\a...
+VSCODE_GIT_ASKPASS_NODE        C:\Users\Joseph.Lucio\AppData\Local\Programs\Antigravity\Antigravity...
+VSCODE_GIT_IPC_HANDLE          \\.\pipe\vscode-git-3ac40a2ec3-sock                                    
+VSCODE_INJECTION               1                                                                      
+VSCODE_PYTHON_AUTOACTIVATE_... 1                                                                      
+windir                         C:\Windows                                                             
+ZES_ENABLE_SYSMAN              1                                                                      
+
+

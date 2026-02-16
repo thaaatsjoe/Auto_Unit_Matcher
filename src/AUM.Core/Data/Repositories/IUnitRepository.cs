@@ -18,4 +18,7 @@ public interface IUnitRepository : IRepository<Unit>
     
     /// <summary>Gets all unit IDs and descriptor blobs for index rebuilding.</summary>
     Task<IReadOnlyList<(long Id, byte[] DescriptorBlob)>> GetAllDescriptorsAsync();
+    
+    /// <summary>Inserts a new unit or updates existing one if STL path already exists. Returns the unit ID.</summary>
+    Task<long> UpsertByStlPathAsync(Unit entity);
 }

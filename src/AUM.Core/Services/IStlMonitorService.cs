@@ -37,4 +37,10 @@ public interface IStlMonitorService : IDisposable
     /// Raised when a new STL file is detected.
     /// </summary>
     event EventHandler<StlFileEventArgs>? FileDetected;
+    
+    /// <summary>
+    /// Raised when the initial directory scan is complete.
+    /// All existing files have been processed at this point.
+    /// </summary>
+    event EventHandler? ScanComplete;
 }

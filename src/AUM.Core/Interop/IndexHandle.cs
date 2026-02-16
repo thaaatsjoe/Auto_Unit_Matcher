@@ -38,22 +38,23 @@ public sealed class IndexHandle : SafeHandle
     }
     
     /// <summary>
-    /// Adds a descriptor to the index with the given ID.
+    /// Adds a descriptor's keypoints to the index.
+    /// Must be called before Train().
     /// </summary>
-    public void Add(DescriptorHandle descriptor, long id)
+    public void Add(DescriptorHandle descriptor, long unitId)
     {
         if (IsInvalid)
             throw new ObjectDisposedException(nameof(IndexHandle));
         if (descriptor == null || descriptor.IsInvalid)
             throw new ArgumentException("Descriptor is null or invalid", nameof(descriptor));
         
-        var result = NativeMethods.aum_add_to_index(handle, descriptor.DangerousGetHandle(), id);
+        var result = NativeMethods.aum_add_to_index(handle, descriptor.DangerousGetHandle(), unitId);
         if (result != ErrorCode.Success)
-            throw new InvalidOperationException($"Failed to add to index: {result}");
+            throw new InvalidOperationException($"Failed to add to index: {result} - {NativeMethods.GetLastErrorMessage()}");
     }
     
     /// <summary>
-    /// Trains the index. Must be called after adding descriptors and before querying.
+    /// Trains the IVF index. Must be called after adding all descriptors and before querying.
     /// </summary>
     public void Train()
     {
@@ -62,16 +63,14 @@ public sealed class IndexHandle : SafeHandle
         
         var result = NativeMethods.aum_train_index(handle);
         if (result != ErrorCode.Success)
-            throw new InvalidOperationException($"Failed to train index: {result}");
+            throw new InvalidOperationException($"Failed to train index: {result} - {NativeMethods.GetLastErrorMessage()}");
     }
     
     /// <summary>
-    /// Queries the index for similar descriptors.
+    /// Stage 1: Query the index using keypoint voting.
+    /// Returns top-K units by weighted vote score.
     /// </summary>
-    /// <param name="query">Query descriptor.</param>
-    /// <param name="topK">Number of results to return (default 5 per PRD).</param>
-    /// <returns>Array of match results, ordered by similarity.</returns>
-    public MatchResult[] Query(DescriptorHandle query, int topK = 5)
+    public VoteResult[] QueryVotes(DescriptorHandle query, int topK = 10)
     {
         if (IsInvalid)
             throw new ObjectDisposedException(nameof(IndexHandle));
@@ -80,21 +79,37 @@ public sealed class IndexHandle : SafeHandle
         if (topK <= 0)
             throw new ArgumentOutOfRangeException(nameof(topK), "topK must be positive");
         
-        var results = new MatchResult[topK];
-        var returnCode = NativeMethods.aum_query_index(handle, query.DangerousGetHandle(), topK, results, out var count);
+        var results = new VoteResult[topK];
+        var returnCode = NativeMethods.aum_query_votes(handle, query.DangerousGetHandle(), topK, results, out var count);
         
         if (returnCode != ErrorCode.Success)
-            throw new InvalidOperationException($"Failed to query index: {returnCode}");
+            throw new InvalidOperationException($"Failed to query votes: {returnCode} - {NativeMethods.GetLastErrorMessage()}");
         
-        // Return only the actual results
         if (count < topK)
         {
-            var trimmed = new MatchResult[count];
+            var trimmed = new VoteResult[count];
             Array.Copy(results, trimmed, count);
             return trimmed;
         }
         
         return results;
+    }
+    
+    /// <summary>
+    /// Stage 2: Geometric verification using RANSAC + Dense Point-to-Plane ICP.
+    /// </summary>
+    public static VerificationResult Verify(DescriptorHandle query, DescriptorHandle candidate)
+    {
+        if (query == null || query.IsInvalid)
+            throw new ArgumentException("Query descriptor is null or invalid", nameof(query));
+        if (candidate == null || candidate.IsInvalid)
+            throw new ArgumentException("Candidate descriptor is null or invalid", nameof(candidate));
+        
+        var result = NativeMethods.aum_verify(query.DangerousGetHandle(), candidate.DangerousGetHandle(), out var verification);
+        if (result != ErrorCode.Success)
+            throw new InvalidOperationException($"Failed to verify: {result} - {NativeMethods.GetLastErrorMessage()}");
+        
+        return verification;
     }
     
     /// <summary>
@@ -109,17 +124,17 @@ public sealed class IndexHandle : SafeHandle
         
         var result = NativeMethods.aum_save_index(handle, path);
         if (result != ErrorCode.Success)
-            throw new InvalidOperationException($"Failed to save index: {result}");
+            throw new InvalidOperationException($"Failed to save index: {result} - {NativeMethods.GetLastErrorMessage()}");
     }
     
     /// <summary>
-    /// Creates a new empty index.
+    /// Creates a new empty FAISS voting index.
     /// </summary>
     public static IndexHandle Create()
     {
         var result = NativeMethods.aum_create_index(out var indexPtr);
         if (result != ErrorCode.Success)
-            throw new InvalidOperationException($"Failed to create index: {result}");
+            throw new InvalidOperationException($"Failed to create index: {result} - {NativeMethods.GetLastErrorMessage()}");
         
         return new IndexHandle(indexPtr);
     }
@@ -134,7 +149,7 @@ public sealed class IndexHandle : SafeHandle
         
         var result = NativeMethods.aum_load_index(path, out var indexPtr);
         if (result != ErrorCode.Success)
-            throw new InvalidOperationException($"Failed to load index: {result}");
+            throw new InvalidOperationException($"Failed to load index: {result} - {NativeMethods.GetLastErrorMessage()}");
         
         return new IndexHandle(indexPtr);
     }

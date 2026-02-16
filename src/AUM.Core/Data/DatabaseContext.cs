@@ -57,25 +57,17 @@ public class DatabaseContext : IDisposable
 
     /// <summary>
     /// Gets a connection to the database.
-    /// For in-memory databases, always returns the same shared connection.
-    /// For file-based databases, creates a new connection each time.
+    /// Always returns the same shared connection to avoid connection leaks.
+    /// SQLite in WAL mode safely supports this pattern.
     /// </summary>
     public SqliteConnection CreateConnection()
     {
-        if (_isInMemory)
+        if (_sharedConnection == null)
         {
-            // In-memory databases are connection-specific - must reuse same connection
-            if (_sharedConnection == null)
-            {
-                _sharedConnection = new SqliteConnection(_connectionString);
-                _sharedConnection.Open();
-            }
-            return _sharedConnection;
+            _sharedConnection = new SqliteConnection(_connectionString);
+            _sharedConnection.Open();
         }
-        
-        var connection = new SqliteConnection(_connectionString);
-        connection.Open();
-        return connection;
+        return _sharedConnection;
     }
 
     /// <summary>
@@ -123,11 +115,7 @@ public class DatabaseContext : IDisposable
             _logger?.LogInformation("Seed data executed successfully.");
         }
         
-        // Don't dispose connection for in-memory databases
-        if (!_isInMemory)
-        {
-            await connection.DisposeAsync();
-        }
+        // Shared connection lifecycle managed by DatabaseContext.Dispose()
     }
 
     /// <summary>
