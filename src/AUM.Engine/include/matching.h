@@ -15,7 +15,7 @@ namespace aum {
  */
 struct AUM_API VoteResult {
     int64_t unitId;       // Database ID of the unit
-    float   voteScore;    // Weighted vote score (sum of exp(-dist*5))
+    float   voteScore;    // Weighted vote score (sum of 1/(1+dist))
     int     voteCount;    // Raw number of keypoint votes
 };
 

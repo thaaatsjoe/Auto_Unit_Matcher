@@ -32,20 +32,15 @@ using PointNormalCloudPtr = pcl::PointCloud<pcl::PointNormal>::Ptr;
  * All radii are in millimeters (1:1 patient scale, no sintering compensation).
  */
 struct AUM_API DescriptorConfig {
-    // Downsampling
-    float voxelSize = 0.2f;           // Smooths 50-micron milling noise, preserves macro anatomy
-    
+    // Density normalization (applied FIRST — before anything else)
+    float voxelSize = 0.15f;          // Universal density grid — topology-independent
+
+    // Uniform voxel keypoints (replaces ISS — deterministic across remeshed inputs)
+    float keypointVoxelSize = 0.4f;   // Coarser grid for keypoint locations (~800-1200 pts)
+
     // Normal estimation (for SHOT features — surface-bound, no bleed-through)
     float normalRadius = 0.5f;        // ≤crown thickness — prevents LRF flip from intaglio
-    
-    // ISS Keypoint Detection
-    float issSalientRadius = 1.0f;    // Captures cusp/pit scale features
-    float issNonMaxRadius = 0.6f;     // Forces spatial distribution of keypoints
-    float issThreshold21 = 0.85f;     // Accept surface variation
-    float issThreshold32 = 0.85f;     // Accept surface variation
-    int   issMinNeighbors = 5;        // ISS minimum neighbors
-    int   maxKeypoints = 2000;        // High cap — ISS non-max radius distributes naturally
-    
+
     // SHOT descriptor
     float shotRadius = 1.0f;          // < crown thickness — prevents Thin Shell penetration
     
@@ -121,16 +116,16 @@ public:
     static Descriptor deserialize(const uint8_t* data, size_t len);
 
 private:
-    PointCloudPtr keypoints_;        // XYZ positions of ISS keypoints (sparse)
+    PointCloudPtr keypoints_;        // Uniform voxel grid keypoints (sparse)
     SHOTCloudPtr features_;          // SHOT352 at each keypoint
     PointCloudPtr denseCloud_;       // VoxelGrid-downsampled full surface (for ICP)
     NormalCloudPtr denseNormals_;    // Normals at each dense point (for Point-to-Plane ICP)
 };
 
 /**
- * ISS Keypoint + SHOT352 descriptor extractor.
- * Pipeline: Downsample → SHOT Normals → ISS Keypoints → SHOT352
- *                      → ICP Normals (separate radius)
+ * Uniform Voxel Keypoint + SHOT352 descriptor extractor.
+ * Pipeline: Parse → Demean → VoxelGrid(0.15mm) → Normals(viewpoint) → VoxelGrid(0.4mm) keypoints → SHOT352
+ *                                                → ICP Normals (separate radius)
  * Output includes both sparse keypoints/SHOT and the dense downsampled cloud.
  */
 class AUM_API DescriptorExtractor {
@@ -138,7 +133,7 @@ public:
     explicit DescriptorExtractor(const DescriptorConfig& config = {});
     
     /**
-     * Extract ISS keypoints, SHOT352 descriptors, and dense cloud from point cloud.
+     * Extract voxel keypoints, SHOT352 descriptors, and dense cloud from point cloud.
      * @param cloud Input point cloud (STL mesh vertices)
      * @return Descriptor containing keypoint positions + SHOT features + dense cloud
      */
@@ -147,9 +142,9 @@ public:
 private:
     DescriptorConfig config_;
     
-    PointCloudPtr downsample(PointCloudPtr cloud);
+    void demean(PointCloudPtr cloud);
+    PointCloudPtr downsample(PointCloudPtr cloud, float leafSize);
     NormalCloudPtr estimateNormals(PointCloudPtr cloud, float radius);
-    PointCloudPtr detectKeypoints(PointCloudPtr cloud, NormalCloudPtr normals);
 };
 
 } // namespace aum

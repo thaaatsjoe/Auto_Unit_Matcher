@@ -1,14 +1,14 @@
-// ISS Keypoint + SHOT352 Descriptor Extraction Implementation
-// Pipeline: Downsample → SHOT Normals → ISS Keypoints → SHOT352
-//                       → ICP Normals (separate radius for micro-anatomy)
+// Uniform Voxel Keypoint + SHOT352 Descriptor Extraction
+// Pipeline: Parse → Demean → VoxelGrid(0.15mm) → Normals(viewpoint) → VoxelGrid(0.4mm) keypoints → SHOT352
+//                                                → ICP Normals (separate radius)
 // No scaling applied — STLs are 1:1 patient scale
 
 #include "descriptor.h"
-#include <pcl/keypoints/iss_3d.h>
 #include <pcl/features/shot_omp.h>
 #include <pcl/features/normal_3d_omp.h>
 #include <pcl/filters/voxel_grid.h>
 #include <pcl/search/kdtree.h>
+#include <pcl/common/centroid.h>
 #include <stdexcept>
 #include <cstring>
 #include <cmath>
@@ -255,29 +255,33 @@ Descriptor Descriptor::deserialize(const uint8_t* data, size_t len) {
 DescriptorExtractor::DescriptorExtractor(const DescriptorConfig& config) 
     : config_(config) {}
 
-PointCloudPtr DescriptorExtractor::downsample(PointCloudPtr cloud) {
-    if (cloud->size() <= 2000) {
-        return cloud;  // Small cloud, no downsampling needed
-    }
+// Demean: subtract centroid so cloud is centered at origin.
+// This fixes PCL's viewpoint-dependent normal orientation (the "Viewpoint Bug").
+void DescriptorExtractor::demean(PointCloudPtr cloud) {
+    Eigen::Vector4f centroid;
+    pcl::compute3DCentroid(*cloud, centroid);
     
+    for (auto& pt : cloud->points) {
+        pt.x -= centroid[0];
+        pt.y -= centroid[1];
+        pt.z -= centroid[2];
+    }
+}
+
+// Universal density normalization via VoxelGrid.
+PointCloudPtr DescriptorExtractor::downsample(PointCloudPtr cloud, float leafSize) {
     auto downsampled = std::make_shared<PointCloud>();
     
     pcl::VoxelGrid<pcl::PointXYZ> voxelGrid;
     voxelGrid.setInputCloud(cloud);
-    voxelGrid.setLeafSize(config_.voxelSize, config_.voxelSize, config_.voxelSize);
+    voxelGrid.setLeafSize(leafSize, leafSize, leafSize);
     voxelGrid.filter(*downsampled);
-    
-    // If still too many points, increase voxel size iteratively
-    float currentVoxelSize = config_.voxelSize;
-    while (downsampled->size() > 20000 && currentVoxelSize < 10.0f) {
-        currentVoxelSize *= 1.5f;
-        voxelGrid.setLeafSize(currentVoxelSize, currentVoxelSize, currentVoxelSize);
-        voxelGrid.filter(*downsampled);
-    }
     
     return downsampled;
 }
 
+// Normal estimation with forced viewpoint above the occlusal surface.
+// Viewpoint at (0,0,10000) guarantees outward/upward normals on both CAD and scans.
 NormalCloudPtr DescriptorExtractor::estimateNormals(PointCloudPtr cloud, float radius) {
     auto normals = std::make_shared<NormalCloud>();
     
@@ -287,66 +291,13 @@ NormalCloudPtr DescriptorExtractor::estimateNormals(PointCloudPtr cloud, float r
     auto tree = std::make_shared<pcl::search::KdTree<pcl::PointXYZ>>();
     normalEstimation.setSearchMethod(tree);
     normalEstimation.setRadiusSearch(radius);
+    
+    // Force viewpoint far above the cloud to guarantee consistent outward normals
+    normalEstimation.setViewPoint(0.0f, 0.0f, 10000.0f);
+    
     normalEstimation.compute(*normals);
     
     return normals;
-}
-
-PointCloudPtr DescriptorExtractor::detectKeypoints(PointCloudPtr cloud, NormalCloudPtr normals) {
-    auto keypoints = std::make_shared<PointCloud>();
-    
-    pcl::ISSKeypoint3D<pcl::PointXYZ, pcl::PointXYZ> issDetector;
-    issDetector.setInputCloud(cloud);
-    issDetector.setNormals(normals);
-    
-    auto tree = std::make_shared<pcl::search::KdTree<pcl::PointXYZ>>();
-    issDetector.setSearchMethod(tree);
-    issDetector.setSalientRadius(config_.issSalientRadius);
-    issDetector.setNonMaxRadius(config_.issNonMaxRadius);
-    issDetector.setThreshold21(config_.issThreshold21);
-    issDetector.setThreshold32(config_.issThreshold32);
-    issDetector.setMinNeighbors(config_.issMinNeighbors);
-    issDetector.compute(*keypoints);
-    
-    // If too many keypoints, sort by saliency (surface curvature) and keep top N.
-    // Curvature from normals is a proxy for ISS response: high curvature = cusps/pits.
-    if (static_cast<int>(keypoints->size()) > config_.maxKeypoints) {
-        // Build KD-tree over the downsampled cloud to map keypoints → normals
-        pcl::search::KdTree<pcl::PointXYZ> normalTree;
-        normalTree.setInputCloud(cloud);
-        
-        // For each keypoint, find its curvature from the nearest point in the normals cloud
-        struct KeypointSaliency {
-            pcl::PointXYZ point;
-            float curvature;
-        };
-        std::vector<KeypointSaliency> ranked;
-        ranked.reserve(keypoints->size());
-        
-        std::vector<int> indices(1);
-        std::vector<float> distances(1);
-        for (size_t i = 0; i < keypoints->size(); ++i) {
-            normalTree.nearestKSearch((*keypoints)[i], 1, indices, distances);
-            float curv = (*normals)[indices[0]].curvature;
-            ranked.push_back({(*keypoints)[i], curv});
-        }
-        
-        // Sort by curvature descending — sharpest features first
-        std::sort(ranked.begin(), ranked.end(),
-            [](const KeypointSaliency& a, const KeypointSaliency& b) {
-                return a.curvature > b.curvature;
-            });
-        
-        // Keep only the top maxKeypoints
-        auto sorted = std::make_shared<PointCloud>();
-        sorted->reserve(config_.maxKeypoints);
-        for (int i = 0; i < config_.maxKeypoints; ++i) {
-            sorted->push_back(ranked[i].point);
-        }
-        keypoints = sorted;
-    }
-    
-    return keypoints;
 }
 
 Descriptor DescriptorExtractor::extract(PointCloudPtr cloud) {
@@ -354,38 +305,45 @@ Descriptor DescriptorExtractor::extract(PointCloudPtr cloud) {
         throw std::runtime_error("Cannot extract descriptors from empty point cloud");
     }
     
-    // Step 1: Downsample for efficiency (this IS our dense cloud for ICP)
-    auto downsampled = downsample(cloud);
+    // Step 1: Demean — center cloud at origin for deterministic normal orientation
+    demean(cloud);
+    
+    // Step 2: Density normalization — VoxelGrid at 0.15mm (FIRST, before everything)
+    // This is the canonical representation used for ALL downstream steps
+    auto downsampled = downsample(cloud, config_.voxelSize);
     if (downsampled->empty()) {
         throw std::runtime_error("Point cloud is empty after downsampling");
     }
     
-    // Step 2: Estimate normals for SHOT features (broad radius = stable orientation)
+    // Step 3: Estimate normals for SHOT features (surface-bound, viewpoint-corrected)
     auto shotNormals = estimateNormals(downsampled, config_.normalRadius);
     
-    // Step 3: Estimate normals for ICP (sharp radius = preserves micro-anatomy)
+    // Step 4: Estimate normals for ICP (sharp radius = preserves micro-anatomy)
     auto icpNormals = estimateNormals(downsampled, config_.icpNormalRadius);
     
-    // Step 4: Detect ISS keypoints (cusps, pits, fissures, margin lines)
-    auto keypoints = detectKeypoints(downsampled, shotNormals);
+    // Step 5: Generate uniform voxel keypoints (replaces ISS)
+    // A second, coarser VoxelGrid at 0.4mm produces topology-independent keypoint locations.
+    // Because VoxelGrid snaps to a fixed grid, the same physical location on an 87k-triangle
+    // and a 25k-triangle mesh will produce the same keypoint coordinates.
+    auto keypoints = downsample(downsampled, config_.keypointVoxelSize);
     if (keypoints->empty()) {
-        throw std::runtime_error("No ISS keypoints detected — cloud may be too small or featureless");
+        throw std::runtime_error("No keypoints generated — cloud may be too small");
     }
     
-    // Step 5: Compute SHOT352 descriptors at keypoints
+    // Step 6: Compute SHOT352 descriptors at every voxel keypoint
     auto shotFeatures = std::make_shared<SHOTCloud>();
     
     pcl::SHOTEstimationOMP<pcl::PointXYZ, pcl::Normal, pcl::SHOT352> shotEstimation;
-    shotEstimation.setInputCloud(keypoints);            // Compute at keypoints
-    shotEstimation.setSearchSurface(downsampled);       // Use full cloud as surface
-    shotEstimation.setInputNormals(shotNormals);        // SHOT normals (broad, 1.0mm)
+    shotEstimation.setInputCloud(keypoints);            // Compute at voxel keypoints
+    shotEstimation.setSearchSurface(downsampled);       // Use dense 0.15mm cloud as surface
+    shotEstimation.setInputNormals(shotNormals);        // Viewpoint-corrected normals
     
     auto tree = std::make_shared<pcl::search::KdTree<pcl::PointXYZ>>();
     shotEstimation.setSearchMethod(tree);
     shotEstimation.setRadiusSearch(config_.shotRadius);
     shotEstimation.compute(*shotFeatures);
     
-    // Step 6: Filter out NaN descriptors (SHOT produces NaN for degenerate points)
+    // Step 7: Filter out NaN descriptors (SHOT produces NaN for degenerate points)
     auto validKeypoints = std::make_shared<PointCloud>();
     auto validFeatures = std::make_shared<SHOTCloud>();
     
@@ -408,9 +366,9 @@ Descriptor DescriptorExtractor::extract(PointCloudPtr cloud) {
         throw std::runtime_error("All SHOT descriptors are NaN — adjust radii or check input mesh");
     }
     
-    // Step 7: Return descriptor with dense cloud + ICP normals
-    // Dense cloud = the VoxelGrid-downsampled cloud (thousands of points)
-    // ICP normals = computed at sharp radius (0.5mm) for cusp/fissure sharpness
+    // Step 8: Return descriptor with dense cloud + ICP normals
+    // Dense cloud = the 0.15mm VoxelGrid-downsampled cloud
+    // ICP normals = viewpoint-corrected, computed at sharp radius
     return Descriptor(validKeypoints, validFeatures, downsampled, icpNormals);
 }
 

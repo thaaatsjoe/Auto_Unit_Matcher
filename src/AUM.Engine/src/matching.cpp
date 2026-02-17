@@ -174,10 +174,10 @@ std::vector<VoteResult> MatchingIndex::queryVotes(
         int64_t unitId = decodeUnitId(ids[i]);
         float dist = distances[i];
         
-        // Weight: exp(-dist * 5.0) — sharp exponential decay
-        // Perfect match (dist~0) → weight~1.0, noise (dist>1) → weight~0.007
-        // Prevents generic anatomy from drowning out the true match
-        float weight = std::exp(-dist * 5.0f);
+        // Weight: 1/(1+dist) — gentle inverse distance curve
+        // Stage 1 casts a wide net; Stage 2 Dense ICP catches garbage
+        // Remeshed scans have natural distance drift — aggressive penalties starve correct matches
+        float weight = 1.0f / (1.0f + dist);
         
         voteScores[unitId] += weight;
         voteCounts[unitId]++;

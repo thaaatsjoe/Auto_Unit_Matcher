@@ -54,7 +54,7 @@ TEST_F(DescriptorTest, KeypointCountReasonable) {
     
     // With relaxed ISS params on a 5000-point sphere, expect 10+ keypoints
     EXPECT_GE(desc.size(), 5);
-    EXPECT_LE(desc.size(), 3000);  // Should not exceed maxKeypoints
+    EXPECT_LE(desc.size(), 3000);  // Bounded by voxel grid density
 }
 
 TEST_F(DescriptorTest, SHOTDimensionCorrect) {
@@ -101,13 +101,10 @@ TEST_F(DescriptorTest, ExtractFromEmptyCloudThrows) {
 
 TEST_F(DescriptorTest, ConfigurableParameters) {
     DescriptorConfig config;
-    config.voxelSize = 0.2f;
-    config.normalRadius = 1.0f;
-    config.issSalientRadius = 1.0f;
-    config.issNonMaxRadius = 0.8f;
-    config.issThreshold21 = 0.9f;
-    config.issThreshold32 = 0.9f;
-    config.shotRadius = 2.5f;
+    config.voxelSize = 0.15f;
+    config.keypointVoxelSize = 0.4f;
+    config.normalRadius = 0.5f;
+    config.shotRadius = 1.0f;
     
     DescriptorExtractor extractor(config);
     
