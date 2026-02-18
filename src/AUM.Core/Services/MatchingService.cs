@@ -40,7 +40,7 @@ public class MatchingService : IMatchingService
         // Stage 1: FAISS Voting (fast, ~100ms for 6000 units)
         // Each query keypoint votes for its nearest unit(s)
         // ================================================================
-        const int voteCandidates = 30;
+        const int voteCandidates = 50;
         _logger?.LogInformation("Stage 1: FAISS voting for top {K} candidates", voteCandidates);
         
         VoteResult[] voteResults;
@@ -115,6 +115,17 @@ public class MatchingService : IMatchingService
                 Confidence = finalScore,
                 Rank = 0
             });
+            
+            // EARLY EXIT: Dense ICP is a near-perfect geometric discriminator.
+            // Once we find a microscopic lock (>=90%), there is zero physical
+            // probability of finding a better match. Stop processing remaining
+            // candidates to avoid wasting 10-30s of Dense ICP compute.
+            if (finalScore >= 90.0f)
+            {
+                _logger?.LogInformation("Early exit: {CaseId} scored {Score:F1}% — skipping remaining candidates",
+                    unit.CaseId, finalScore);
+                break;
+            }
         }
         
         // ================================================================

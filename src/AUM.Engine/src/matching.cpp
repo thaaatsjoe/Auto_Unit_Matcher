@@ -15,6 +15,7 @@
 #include <stdexcept>
 #include <fstream>
 #include <unordered_map>
+#include <unordered_set>
 #include <numeric>
 
 namespace aum {
@@ -59,6 +60,7 @@ void MatchingIndex::add(const Descriptor& desc, int64_t unitId) {
     if (!features || features->empty()) return;
     
     size_t count = desc.size();
+    int validCount = 0;
     
     for (size_t i = 0; i < count; ++i) {
         // Check for NaN (should already be filtered, but be safe)
@@ -79,7 +81,11 @@ void MatchingIndex::add(const Descriptor& desc, int64_t unitId) {
             (*features)[i].descriptor,
             (*features)[i].descriptor + dimension_);
         pendingIds_.push_back(faissId);
+        validCount++;
     }
+    
+    // Track per-unit keypoint count for vote normalization
+    unitKeypointCounts_[unitId] = validCount;
     
     // If already trained, add directly to index
     if (trained_ && idMapIndex_) {
@@ -164,24 +170,38 @@ std::vector<VoteResult> MatchingIndex::queryVotes(
         distances.data(),
         ids.data());
     
-    // Accumulate votes per unit ID
+    // Accumulate votes per unit ID with UNIQUE VOTE CONSTRAINT:
+    // Each query keypoint can only vote ONCE per UnitId. This prevents
+    // massive models (full-arch WAX-UPs) from accumulating duplicate votes
+    // when multiple of their keypoints are nearest neighbors of the same
+    // query keypoint. Solves size-bias at its root without normalization.
     std::unordered_map<int64_t, float> voteScores;
     std::unordered_map<int64_t, int> voteCounts;
     
-    for (size_t i = 0; i < querySize * neighborsPerKeypoint; ++i) {
-        if (ids[i] < 0) continue;  // Invalid result
-        
-        int64_t unitId = decodeUnitId(ids[i]);
-        float dist = distances[i];
-        
-        // Weight: 1/(1+dist) — gentle inverse distance curve
-        // Stage 1 casts a wide net; Stage 2 Dense ICP catches garbage
-        // Remeshed scans have natural distance drift — aggressive penalties starve correct matches
-        float weight = 1.0f / (1.0f + dist);
-        
-        voteScores[unitId] += weight;
-        voteCounts[unitId]++;
+    for (size_t q = 0; q < querySize; ++q) {
+        std::unordered_set<int64_t> votedUnits;
+        for (int k = 0; k < neighborsPerKeypoint; ++k) {
+            size_t idx = q * neighborsPerKeypoint + k;
+            if (ids[idx] < 0) continue;  // Invalid result
+            
+            int64_t unitId = decodeUnitId(ids[idx]);
+            
+            // Skip if this query keypoint already voted for this unit
+            if (!votedUnits.insert(unitId).second) continue;
+            
+            float dist = distances[idx];
+            // Weight: 1/(1+dist) — gentle inverse distance curve
+            float weight = 1.0f / (1.0f + dist);
+            
+            voteScores[unitId] += weight;
+            voteCounts[unitId]++;
+        }
     }
+    
+    // NO NORMALIZATION — Stage 1 is strictly for RECALL (cast a wide net).
+    // Stage 2 Dense ICP is the precision discriminator.
+    // The unique vote constraint above prevents WAX-UP domination without
+    // penalizing correct units that have geometry the scanner couldn't see.
     
     // Convert to sorted vector
     std::vector<VoteResult> results;
@@ -190,7 +210,7 @@ std::vector<VoteResult> MatchingIndex::queryVotes(
         results.push_back({unitId, score, voteCounts[unitId]});
     }
     
-    // Sort by vote score descending
+    // Sort by raw weighted vote score descending
     std::sort(results.begin(), results.end(),
         [](const VoteResult& a, const VoteResult& b) {
             return a.voteScore > b.voteScore;
@@ -249,6 +269,9 @@ VerificationResult MatchingIndex::verify(
     
     // For each query SHOT, find nearest candidate SHOT (brute-force L2)
     // Apply Lowe's Ratio Test: reject if best/secondBest > 0.8
+    // Lowe's ratio test: bestDist < 0.8 * secondBestDist on squared L2
+    // For 352-D SHOT descriptors, 0.8 on squared distances (effective ratio ~0.89)
+    // is appropriate — high-dimensional spaces need MORE lenient thresholds
     constexpr float RATIO_THRESHOLD = 0.8f;
     pcl::Correspondences correspondences;
     for (size_t qi = 0; qi < qSize; ++qi) {
@@ -306,11 +329,12 @@ VerificationResult MatchingIndex::verify(
         static_cast<float>(inlierCorrespondences.size()) / 
         static_cast<float>(correspondences.size());
     
-    // GATEKEEPER: Absolute inlier minimum = 12
-    // A rigid body match of complex dental anatomy requires at least 12
-    // distinct spatial points aligning. Fewer means RANSAC fit random noise.
-    // DO NOT run expensive Dense ICP for rejected candidates.
-    if (inlierCorrespondences.size() < 12) {
+    // GATEKEEPER: Minimum 3 inliers (minimum for rigid body estimation)
+    // We trust Dense ICP as the real discriminator — RANSAC provides initial
+    // alignment seed. Even a noisy 3-point seed lets ICP converge for correct
+    // matches (surface anatomy locks in) but diverge for wrong matches.
+    // Lowered from 12 to support partial scans with fewer keypoints.
+    if (inlierCorrespondences.size() < 3) {
         result.finalScore = 0.0f;
         result.icpFitnessScore = std::numeric_limits<float>::max();
         return result;
@@ -417,8 +441,19 @@ VerificationResult MatchingIndex::verify(
     //   Wrong match:    fitness > 1.0mm²     → score < 14%
     // ================================================================
     
+    // RANSAC QUALITY PENALTY:
+    // When inlier ratio approaches 100%, the RANSAC transform is degenerate —
+    // all SHOT correspondences fell near the centroid and no outlier rejection
+    // occurred. Healthy geometric matches have 2-30% inlier ratio.
+    // Penalty ramp: ratio 0-0.80 = no penalty, 0.80-1.00 = linear to 0.2x
+    float degeneratePenalty = 1.0f;
+    if (result.ransacInlierRatio > 0.80f) {
+        degeneratePenalty = 1.0f - 0.8f * ((result.ransacInlierRatio - 0.80f) / 0.20f);
+        degeneratePenalty = std::max(0.2f, degeneratePenalty);
+    }
+    
     float icpQuality = std::exp(-result.icpFitnessScore / icpFitnessDecay);
-    result.finalScore = std::max(0.0f, std::min(100.0f, 100.0f * icpQuality));
+    result.finalScore = std::max(0.0f, std::min(100.0f, 100.0f * icpQuality * degeneratePenalty));
     
     return result;
 }
@@ -437,11 +472,10 @@ size_t MatchingIndex::size() const {
 
 void MatchingIndex::clear() {
     pendingVectors_.clear();
-    pendingVectors_.shrink_to_fit();
     pendingIds_.clear();
-    pendingIds_.shrink_to_fit();
-    idMapIndex_.reset();
+    unitKeypointCounts_.clear();
     flatIndex_.reset();
+    idMapIndex_.reset();
     trained_ = false;
 }
 

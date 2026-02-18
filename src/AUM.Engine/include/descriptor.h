@@ -36,7 +36,7 @@ struct AUM_API DescriptorConfig {
     float voxelSize = 0.15f;          // Universal density grid — topology-independent
 
     // Uniform voxel keypoints (replaces ISS — deterministic across remeshed inputs)
-    float keypointVoxelSize = 0.4f;   // Coarser grid for keypoint locations (~800-1200 pts)
+    float keypointVoxelSize = 0.8f;  // Leaf size for keypoint VoxelGrid (was 0.4→too many keypoints)
 
     // Normal estimation (for SHOT features — surface-bound, no bleed-through)
     float normalRadius = 0.5f;        // ≤crown thickness — prevents LRF flip from intaglio

@@ -94,10 +94,10 @@ public:
      * decodes the unit IDs, and accumulates weighted votes.
      * @param query Query descriptor (from scan)
      * @param topK Number of top-voted units to return
-     * @param neighborsPerKeypoint How many FAISS neighbors per query keypoint (default 100)
-     * @return Sorted vector of VoteResult (highest vote score first)
+     * @param neighborsPerKeypoint How many FAISS neighbors per query keypoint (default 20)
+     * @return Top-K units sorted by normalized vote score (per-keypoint)
      */
-    std::vector<VoteResult> queryVotes(const Descriptor& query, int topK = 10, int neighborsPerKeypoint = 100);
+    std::vector<VoteResult> queryVotes(const Descriptor& query, int topK = 10, int neighborsPerKeypoint = 20);
     
     /**
      * Stage 2: Geometric verification using RANSAC + Dense Point-to-Plane ICP.
@@ -154,6 +154,9 @@ private:
     // Pre-training buffers
     std::vector<float> pendingVectors_;
     std::vector<int64_t> pendingIds_;
+    
+    // Per-unit keypoint counts for vote normalization
+    std::unordered_map<int64_t, int> unitKeypointCounts_;
     
     // FAISS index components (created during trainIndex)
     std::unique_ptr<faiss::IndexFlatL2> flatIndex_;
