@@ -12,13 +12,37 @@
 // Thread-local error message
 static thread_local std::string g_lastError;
 
+// Global extraction config (defaults from DescriptorConfig constructor)
+static aum::DescriptorConfig g_config;
+static float g_icpFitnessDecay = 0.5f;
+
 // Version string
-static const char* VERSION = "4.0.0";
+static const char* VERSION = "4.1.0";
 
 // Helper to set error and return
 static AUM_ErrorCode setError(AUM_ErrorCode code, const std::string& msg) {
     g_lastError = msg;
     return code;
+}
+
+// ============================================================================
+// Configuration
+// ============================================================================
+
+AUM_API AUM_ErrorCode aum_set_config(const AUM_DescriptorConfig* config) {
+    if (!config) {
+        return setError(AUM_ERROR_NULL_POINTER, "Null config pointer");
+    }
+    g_config.voxelSize = config->voxelSize;
+    g_config.keypointVoxelSize = config->keypointVoxelSize;
+    g_config.shotRadius = config->shotRadius;
+    g_icpFitnessDecay = config->icpFitnessDecay;
+    return AUM_SUCCESS;
+}
+
+AUM_API void aum_reset_config(void) {
+    g_config = aum::DescriptorConfig{};
+    g_icpFitnessDecay = 0.5f;
 }
 
 // ============================================================================
@@ -66,7 +90,7 @@ AUM_API AUM_ErrorCode aum_extract_descriptors(AUM_PointCloudHandle pc, AUM_Descr
     
     try {
         auto cloud = *static_cast<aum::PointCloudPtr*>(pc);
-        aum::DescriptorExtractor extractor;
+        aum::DescriptorExtractor extractor(g_config);
         auto desc = extractor.extract(cloud);
         *out_handle = new aum::Descriptor(std::move(desc));
         return AUM_SUCCESS;
@@ -217,9 +241,46 @@ AUM_API AUM_ErrorCode aum_verify(
         auto queryDesc = static_cast<aum::Descriptor*>(query);
         auto candidateDesc = static_cast<aum::Descriptor*>(candidate);
         
-        // Uses default parameters from matching.h:
-        // ransacThreshold = 0.25mm, icpMaxCorrespondenceDist = 0.5mm, icpFitnessDecay = 0.5
-        auto result = aum::MatchingIndex::verify(*queryDesc, *candidateDesc);
+        // Uses g_icpFitnessDecay from aum_set_config (or default 0.5 if not set)
+        auto result = aum::MatchingIndex::verify(
+            *queryDesc, *candidateDesc,
+            0.25f,   // ransacThreshold (mm)
+            0.5f,    // icpMaxCorrespondenceDist (mm)
+            g_icpFitnessDecay);
+        
+        out_result->unitId = result.unitId;
+        out_result->ransacInlierRatio = result.ransacInlierRatio;
+        out_result->icpFitnessScore = result.icpFitnessScore;
+        out_result->finalScore = result.finalScore;
+        out_result->ransacInliers = result.ransacInliers;
+        out_result->correspondences = result.correspondences;
+        
+        return AUM_SUCCESS;
+    } catch (const std::exception& e) {
+        return setError(AUM_ERROR_COMPUTATION_FAILED, e.what());
+    }
+}
+
+AUM_API AUM_ErrorCode aum_verify_with_decay(
+    AUM_DescriptorHandle query,
+    AUM_DescriptorHandle candidate,
+    float icpFitnessDecay,
+    AUM_VerificationResult* out_result
+) {
+    if (!query || !candidate || !out_result) {
+        return setError(AUM_ERROR_NULL_POINTER, "Null pointer argument");
+    }
+    
+    try {
+        auto queryDesc = static_cast<aum::Descriptor*>(query);
+        auto candidateDesc = static_cast<aum::Descriptor*>(candidate);
+        
+        // Uses custom icpFitnessDecay from ML tuning
+        auto result = aum::MatchingIndex::verify(
+            *queryDesc, *candidateDesc,
+            0.25f,   // ransacThreshold (mm)
+            0.5f,    // icpMaxCorrespondenceDist (mm)
+            icpFitnessDecay);
         
         out_result->unitId = result.unitId;
         out_result->ransacInlierRatio = result.ransacInlierRatio;

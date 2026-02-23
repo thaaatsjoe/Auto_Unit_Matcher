@@ -1,3 +1,13 @@
 
 START THE APP:
-dotnet run --project src/AUM.UI/AUM.UI.csproj -c Release
+dotnet run --project src\AUM.UI\AUM.UI.csproj -c Release --no-build
+
+
+
+
+
+Start training
+python tools/optimize_cpu.py
+
+kill training
+taskkill /F /IM python.exe

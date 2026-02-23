@@ -70,4 +70,10 @@ public interface IFingerprintEngine : IDisposable
     /// Gets the native engine version string.
     /// </summary>
     string Version { get; }
+    
+    /// <summary>
+    /// Override extraction parameters for ML tuning.
+    /// Must be called BEFORE indexing/matching.
+    /// </summary>
+    void SetConfig(DescriptorConfig config);
 }

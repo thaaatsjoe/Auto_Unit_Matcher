@@ -12,9 +12,43 @@ public class StlMonitorService : IStlMonitorService
     private FileSystemWatcher? _watcher;
     private bool _disposed;
     
+    /// <summary>
+    /// Non-C&B keywords — STL files or directories containing any of these
+    /// are skipped during ingestion. Case-insensitive.
+    /// </summary>
+    private static readonly string[] NonCBKeywords =
+    [
+        "wax-up", "waxup", "wax up",
+        "denture",
+        "denture base", "base plate", "baseplate",
+        "abutment",
+        "model",
+        "splint",
+        "surgical guide",
+        "night guard", "nightguard"
+    ];
+    
     public StlMonitorService(ILogger<StlMonitorService>? logger = null)
     {
         _logger = logger;
+    }
+    
+    /// <summary>
+    /// Returns true if the file is a valid Crowns & Bridges STL.
+    /// Checks both filename and parent directory against the exclusion list.
+    /// </summary>
+    public static bool IsCBFile(string filePath)
+    {
+        var fileName = Path.GetFileNameWithoutExtension(filePath) ?? "";
+        var parentDir = Path.GetFileName(Path.GetDirectoryName(filePath)) ?? "";
+        var combined = $"{fileName}|{parentDir}";
+        
+        foreach (var keyword in NonCBKeywords)
+        {
+            if (combined.Contains(keyword, StringComparison.OrdinalIgnoreCase))
+                return false;
+        }
+        return true;
     }
     
     /// <inheritdoc/>
@@ -71,6 +105,13 @@ public class StlMonitorService : IStlMonitorService
     {
         try
         {
+            // C&B exclusion filter
+            if (!IsCBFile(e.FullPath))
+            {
+                _logger?.LogDebug("Skipped Non-C&B file: {Name}", Path.GetFileName(e.FullPath));
+                return;
+            }
+            
             // Parse case ID from path (parent folder name)
             var caseId = ParseCaseId(e.FullPath);
             
@@ -102,10 +143,19 @@ public class StlMonitorService : IStlMonitorService
             
             _logger?.LogInformation("Found {Count} existing STL files to process", files.Length);
             
+            int skippedCount = 0;
             foreach (var filePath in files)
             {
                 try
                 {
+                    // C&B exclusion filter
+                    if (!IsCBFile(filePath))
+                    {
+                        _logger?.LogDebug("Skipped Non-C&B file: {Name}", Path.GetFileName(filePath));
+                        skippedCount++;
+                        continue;
+                    }
+                    
                     var caseId = ParseCaseId(filePath);
                     
                     _logger?.LogDebug("Processing existing file: {Path} (Case: {CaseId})", filePath, caseId);
@@ -122,6 +172,9 @@ public class StlMonitorService : IStlMonitorService
                     _logger?.LogError(ex, "Failed to process existing file: {Path}", filePath);
                 }
             }
+            
+            if (skippedCount > 0)
+                _logger?.LogInformation("Skipped {Count} non-C&B files during scan", skippedCount);
             
             _logger?.LogInformation("Completed initial scan of existing files");
             

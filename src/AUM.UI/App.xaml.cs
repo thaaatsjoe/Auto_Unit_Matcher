@@ -33,6 +33,26 @@ public partial class App : Application
                 rollingInterval: RollingInterval.Day)
             .CreateLogger();
         
+        // ================================================================
+        // HEADLESS MODE: ML tuning (--tune flag)
+        // Runs the full pipeline without WPF, then exits.
+        // ================================================================
+        var tuneArgs = HeadlessTuneRunner.ParseArgs(e.Args);
+        if (tuneArgs != null)
+        {
+            Log.Information("Headless tune mode detected — skipping WPF UI");
+            ShutdownMode = ShutdownMode.OnExplicitShutdown;
+            
+            var exitCode = await HeadlessTuneRunner.RunAsync(tuneArgs);
+            
+            Log.CloseAndFlush();
+            Shutdown(exitCode);
+            return;
+        }
+        
+        // ================================================================
+        // NORMAL MODE: WPF UI
+        // ================================================================
         Log.Information("Application starting");
         
         // Set shutdown mode to prevent auto-exit when login window closes

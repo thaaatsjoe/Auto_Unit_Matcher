@@ -36,6 +36,28 @@ typedef enum {
 } AUM_ErrorCode;
 
 // ============================================================================
+// Tunable Extraction Configuration (for ML parameter optimization)
+// ============================================================================
+
+typedef struct {
+    float voxelSize;           // Density normalization leaf size (default 0.15)
+    float keypointVoxelSize;   // Keypoint grid spacing (default 0.8)
+    float shotRadius;          // SHOT352 support radius (default 1.0)
+    float icpFitnessDecay;     // exp(-fitness/decay) scoring constant (default 0.5)
+} AUM_DescriptorConfig;
+
+/**
+ * Set global descriptor extraction config. Affects all subsequent
+ * aum_extract_descriptors calls. Call BEFORE indexing/matching.
+ */
+AUM_API AUM_ErrorCode aum_set_config(const AUM_DescriptorConfig* config);
+
+/**
+ * Reset config to defaults.
+ */
+AUM_API void aum_reset_config(void);
+
+// ============================================================================
 // Result Structures
 // ============================================================================
 
@@ -171,6 +193,15 @@ AUM_API AUM_ErrorCode aum_query_votes(
 AUM_API AUM_ErrorCode aum_verify(
     AUM_DescriptorHandle query,
     AUM_DescriptorHandle candidate,
+    AUM_VerificationResult* out_result);
+
+/**
+ * Stage 2 with custom ICP fitness decay (for ML tuning).
+ */
+AUM_API AUM_ErrorCode aum_verify_with_decay(
+    AUM_DescriptorHandle query,
+    AUM_DescriptorHandle candidate,
+    float icpFitnessDecay,
     AUM_VerificationResult* out_result);
 
 /**

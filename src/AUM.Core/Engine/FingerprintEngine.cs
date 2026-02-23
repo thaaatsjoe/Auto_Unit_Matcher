@@ -211,6 +211,20 @@ public sealed class FingerprintEngine : IFingerprintEngine
         _logger?.LogInformation("Index loaded successfully");
     }
     
+    /// <inheritdoc/>
+    public void SetConfig(DescriptorConfig config)
+    {
+        ThrowIfDisposed();
+        var rc = NativeMethods.aum_set_config(ref config);
+        if (rc != ErrorCode.Success)
+            throw new InvalidOperationException(
+                $"aum_set_config failed: {NativeMethods.GetLastErrorMessage()}");
+        
+        _logger?.LogInformation(
+            "Engine config set: VoxelSize={VoxelSize}, KeypointVoxel={KpVoxel}, ShotRadius={ShotR}, IcpDecay={Decay}",
+            config.VoxelSize, config.KeypointVoxelSize, config.ShotRadius, config.IcpFitnessDecay);
+    }
+    
     private void ThrowIfDisposed()
     {
         if (_disposed)

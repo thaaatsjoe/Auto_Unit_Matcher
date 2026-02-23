@@ -1,0 +1,2080 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta http-equiv="refresh" content="15">
+<title>AUM Optimizer — Live Dashboard</title>
+<script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: 'Segoe UI', -apple-system, sans-serif;
+    background: #0d1117;
+    color: #e6edf3;
+    padding: 24px;
+    line-height: 1.6;
+  }
+  .header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 24px;
+    flex-wrap: wrap;
+    gap: 16px;
+  }
+  h1 {
+    font-size: 28px;
+    font-weight: 700;
+    background: linear-gradient(135deg, #58a6ff, #a371f7);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+  .status-bar {
+    display: flex;
+    gap: 20px;
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 8px;
+    padding: 12px 20px;
+    font-size: 14px;
+  }
+  .status-item { text-align: center; }
+  .status-item .label { color: #8b949e; font-size: 11px; text-transform: uppercase; letter-spacing: 1px; }
+  .status-item .value { font-size: 22px; font-weight: 700; color: #58a6ff; }
+  .status-item .value.best { color: #3fb950; }
+  .refresh-btn {
+    background: linear-gradient(135deg, #238636, #2ea043);
+    border: none;
+    color: white;
+    padding: 10px 20px;
+    border-radius: 6px;
+    font-size: 14px;
+    cursor: pointer;
+    font-weight: 600;
+    transition: all 0.2s;
+  }
+  .refresh-btn:hover { transform: scale(1.05); box-shadow: 0 0 20px rgba(46,160,67,0.3); }
+  .refresh-btn:active { transform: scale(0.98); }
+  .refresh-info { font-size: 11px; color: #8b949e; margin-top: 4px; text-align: center; }
+  .chart-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+    margin-top: 20px;
+  }
+  .chart-card {
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 12px;
+    padding: 20px;
+    transition: border-color 0.2s;
+  }
+  .chart-card:hover { border-color: #58a6ff; }
+  .chart-card.full { grid-column: 1 / -1; }
+  .chart-title { font-size: 16px; font-weight: 600; margin-bottom: 4px; }
+  .chart-explain {
+    font-size: 13px;
+    color: #8b949e;
+    margin-bottom: 12px;
+    padding: 8px 12px;
+    background: #0d1117;
+    border-radius: 6px;
+    border-left: 3px solid #58a6ff;
+  }
+  .best-params {
+    background: #161b22;
+    border: 1px solid #238636;
+    border-radius: 12px;
+    padding: 20px;
+    margin-top: 20px;
+  }
+  .best-params h2 {
+    color: #3fb950;
+    font-size: 18px;
+    margin-bottom: 12px;
+  }
+  .param-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 12px;
+  }
+  .param-box {
+    background: #0d1117;
+    border-radius: 8px;
+    padding: 12px;
+    text-align: center;
+  }
+  .param-box .name { color: #8b949e; font-size: 12px; }
+  .param-box .val { font-size: 20px; font-weight: 700; color: #3fb950; }
+  .param-box .unit { color: #8b949e; font-size: 11px; }
+  .leaderboard {
+    margin-top: 20px;
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 12px;
+    padding: 20px;
+  }
+  .leaderboard h2 { font-size: 18px; margin-bottom: 12px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { text-align: left; padding: 8px; color: #8b949e; border-bottom: 1px solid #30363d; font-weight: 600; }
+  td { padding: 8px; border-bottom: 1px solid #21262d; }
+  tr:first-child td { color: #3fb950; font-weight: 600; }
+  tr:hover td { background: #1c2128; }
+  .footer { margin-top: 32px; text-align: center; color: #484f58; font-size: 12px; }
+  .progress-section {
+    margin-top: 20px;
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 12px;
+    padding: 16px 20px;
+  }
+  .progress-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 10px;
+  }
+  .progress-header .title { font-size: 14px; font-weight: 600; }
+  .progress-header .pct { font-size: 22px; font-weight: 700; color: #58a6ff; }
+  .progress-track {
+    width: 100%;
+    height: 20px;
+    background: #0d1117;
+    border-radius: 10px;
+    overflow: hidden;
+    position: relative;
+  }
+  .progress-fill {
+    height: 100%;
+    border-radius: 10px;
+    background: linear-gradient(90deg, #238636, #2ea043, #3fb950);
+    transition: width 0.8s ease;
+    position: relative;
+  }
+  .progress-fill.active::after {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.15), transparent);
+    animation: shimmer 2s infinite;
+  }
+  @keyframes shimmer {
+    0% { transform: translateX(-100%); }
+    100% { transform: translateX(100%); }
+  }
+  .progress-labels {
+    display: flex;
+    justify-content: space-between;
+    margin-top: 8px;
+    font-size: 12px;
+    color: #8b949e;
+  }
+  .progress-labels .eta { color: #58a6ff; }
+  .live-section {
+    margin-top: 20px;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+  }
+  .live-card {
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 12px;
+    padding: 16px;
+    position: relative;
+    overflow: hidden;
+  }
+  .live-card.active { border-color: #58a6ff; }
+  .live-card .pulse {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: #3fb950;
+    animation: pulse 1.5s infinite;
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.3; }
+  }
+  .live-header { font-size: 14px; font-weight: 600; margin-bottom: 8px; }
+  .live-params {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-bottom: 10px;
+  }
+  .live-params .tag {
+    background: #0d1117;
+    border-radius: 4px;
+    padding: 2px 8px;
+    font-size: 11px;
+    color: #8b949e;
+  }
+  .live-params .tag b { color: #58a6ff; }
+  .live-mini-progress {
+    width: 100%;
+    height: 6px;
+    background: #0d1117;
+    border-radius: 3px;
+    margin: 6px 0;
+    overflow: hidden;
+  }
+  .live-mini-fill {
+    height: 100%;
+    border-radius: 3px;
+    background: linear-gradient(90deg, #238636, #3fb950);
+    transition: width 0.5s;
+  }
+  .live-stats {
+    display: flex;
+    justify-content: space-between;
+    font-size: 12px;
+    color: #8b949e;
+    margin-bottom: 8px;
+  }
+  .live-stats .acc { color: #3fb950; font-weight: 700; }
+  .auto-refresh-badge {
+    display: inline-block;
+    background: #0d1117;
+    border: 1px solid #30363d;
+    border-radius: 12px;
+    padding: 2px 10px;
+    font-size: 11px;
+    color: #8b949e;
+    margin-left: 8px;
+    animation: pulse 2s infinite;
+  }
+  @media (max-width: 900px) {
+    .chart-grid { grid-template-columns: 1fr; }
+    .param-grid { grid-template-columns: repeat(2, 1fr); }
+    .live-section { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>🦷 AUM Optimizer Dashboard</h1>
+  <div style="text-align:center">
+    <button class="refresh-btn" onclick="refreshData()">🔄 Refresh Data</button>
+    <span class="auto-refresh-badge">⚡ Auto-refreshing every 15s</span>
+    <div class="refresh-info">Last updated: <span id="lastUpdate">2026-02-21 14:03:09</span></div>
+  </div>
+</div>
+
+<div class="status-bar">
+  <div class="status-item">
+    <div class="label">Completed</div>
+    <div class="value" id="statCompleted">63</div>
+  </div>
+  <div class="status-item">
+    <div class="label">Running</div>
+    <div class="value" id="statRunning">22</div>
+  </div>
+  <div class="status-item">
+    <div class="label">Target</div>
+    <div class="value">50</div>
+  </div>
+  <div class="status-item">
+    <div class="label">Best Score</div>
+    <div class="value best" id="statBest">85.29</div>
+  </div>
+  <div class="status-item">
+    <div class="label">Best Accuracy</div>
+    <div class="value best" id="statAcc">—</div>
+  </div>
+</div>
+
+<div class="progress-section">
+  <div class="progress-header">
+    <span class="title">⏳ Optimization Progress</span>
+    <span class="pct" id="progressPct">0%</span>
+  </div>
+  <div class="progress-track">
+    <div class="progress-fill" id="progressFill" style="width: 0%"></div>
+  </div>
+  <div class="progress-labels">
+    <span id="progressCount">0 / 50 trials completed</span>
+    <span class="eta" id="progressEta"></span>
+  </div>
+</div>
+
+<div id="liveSection" class="live-section"></div>
+
+<div id="bestParamsSection"></div>
+
+<div class="chart-grid">
+  <div class="chart-card full">
+    <div class="chart-title">📈 Optimization Progress</div>
+    <div class="chart-explain">
+      Each dot is one experiment. The <b>red line</b> tracks the best score found so far.
+      A rising red line means the optimizer is finding better settings. A flat line means
+      it's converging — the best settings have been found.
+    </div>
+    <div id="chart1" style="height:350px"></div>
+  </div>
+
+  <div class="chart-card">
+    <div class="chart-title">🔬 Voxel Size vs Score</div>
+    <div class="chart-explain">
+      <b>Voxel Size</b> controls how detailed the 3D scan is processed. Too small = slow,
+      too large = loses detail. Best results cluster around <b>0.25–0.30mm</b>.
+    </div>
+    <div id="chart2" style="height:300px"></div>
+  </div>
+
+  <div class="chart-card">
+    <div class="chart-title">📡 Shot Radius vs Score</div>
+    <div class="chart-explain">
+      <b>Shot Radius</b> is how far each point "looks" to understand its neighborhood shape.
+      Larger radius = captures more of the crown's curvature. Sweet spot is <b>1.5–2.0mm</b>.
+    </div>
+    <div id="chart3" style="height:300px"></div>
+  </div>
+
+  <div class="chart-card">
+    <div class="chart-title">🎯 Voxel Size vs Shot Radius</div>
+    <div class="chart-explain">
+      This shows how the two most important settings interact. <b>Bright/large dots = better results.</b>
+      The optimizer is searching for the brightest zone.
+    </div>
+    <div id="chart4" style="height:300px"></div>
+  </div>
+
+  <div class="chart-card">
+    <div class="chart-title">🔁 ICP Decay vs Score</div>
+    <div class="chart-explain">
+      <b>ICP Decay</b> controls how aggressively point mismatches are penalized during verification.
+      Higher decay = more forgiving. The best results show the ideal strictness level.
+    </div>
+    <div id="chart5" style="height:300px"></div>
+  </div>
+</div>
+
+<div class="leaderboard">
+  <h2>🏆 Leaderboard — Top 10 Experiments</h2>
+  <table>
+    <thead>
+      <tr><th>Rank</th><th>Trial #</th><th>Score</th><th>Voxel Size</th><th>Keypoint Size</th><th>Shot Radius</th><th>ICP Decay</th></tr>
+    </thead>
+    <tbody id="leaderboardBody"></tbody>
+  </table>
+</div>
+
+<div class="footer">
+  Auto Unit Matcher — Optuna Hyperparameter Optimization<br>
+  To refresh: run <code>python tools/gen_charts.py</code> then click Refresh
+</div>
+
+<script>
+const DATA = {
+  "trials": [
+    {
+      "num": 0,
+      "voxel": 0.1299,
+      "kpVoxel": 0.4195,
+      "shotR": 1.5995,
+      "decay": 0.3865,
+      "score": 60.95,
+      "start": "2026-02-18 19:57:11.223755",
+      "end": "2026-02-19 02:19:42.147498"
+    },
+    {
+      "num": 1,
+      "voxel": 0.0843,
+      "kpVoxel": 0.8809,
+      "shotR": 1.7511,
+      "decay": 0.1057,
+      "score": 30.08,
+      "start": "2026-02-18 19:57:11.226755",
+      "end": "2026-02-18 20:27:18.463837"
+    },
+    {
+      "num": 2,
+      "voxel": 0.2388,
+      "kpVoxel": 0.8135,
+      "shotR": 1.5474,
+      "decay": 0.4856,
+      "score": 43.07,
+      "start": "2026-02-18 19:57:11.225755",
+      "end": "2026-02-18 20:29:53.727159"
+    },
+    {
+      "num": 3,
+      "voxel": 0.2684,
+      "kpVoxel": 0.3144,
+      "shotR": 1.7261,
+      "decay": 0.6302,
+      "score": 85.29,
+      "start": "2026-02-18 19:57:11.324100",
+      "end": "2026-02-19 08:58:56.023153"
+    },
+    {
+      "num": 4,
+      "voxel": 0.2726,
+      "kpVoxel": 0.7265,
+      "shotR": 1.7203,
+      "decay": 0.1591,
+      "score": 52.71,
+      "start": "2026-02-18 19:57:11.226755",
+      "end": "2026-02-18 20:43:05.430924"
+    },
+    {
+      "num": 5,
+      "voxel": 0.0989,
+      "kpVoxel": 0.6471,
+      "shotR": 0.513,
+      "decay": 0.41,
+      "score": 1.58,
+      "start": "2026-02-18 19:57:11.607212",
+      "end": "2026-02-18 21:29:57.431742"
+    },
+    {
+      "num": 6,
+      "voxel": 0.1354,
+      "kpVoxel": 0.7744,
+      "shotR": 1.1442,
+      "decay": 0.3959,
+      "score": 19.67,
+      "start": "2026-02-18 20:27:18.482858",
+      "end": "2026-02-18 21:13:45.262690"
+    },
+    {
+      "num": 7,
+      "voxel": 0.2735,
+      "kpVoxel": 0.8667,
+      "shotR": 0.615,
+      "decay": 0.3341,
+      "score": 3.49,
+      "start": "2026-02-18 20:29:53.747423",
+      "end": "2026-02-18 20:56:21.333549"
+    },
+    {
+      "num": 8,
+      "voxel": 0.1033,
+      "kpVoxel": 0.5694,
+      "shotR": 1.318,
+      "decay": 0.7254,
+      "score": 31.72,
+      "start": "2026-02-18 20:43:05.453978",
+      "end": "2026-02-18 22:55:58.113357"
+    },
+    {
+      "num": 9,
+      "voxel": 0.2208,
+      "kpVoxel": 0.88,
+      "shotR": 0.9583,
+      "decay": 0.8812,
+      "score": 11.27,
+      "start": "2026-02-18 20:56:21.350666",
+      "end": "2026-02-18 21:23:58.189521"
+    },
+    {
+      "num": 10,
+      "voxel": 0.2332,
+      "kpVoxel": 0.8991,
+      "shotR": 1.6959,
+      "decay": 0.4452,
+      "score": 50.84,
+      "start": "2026-02-18 21:13:45.283284",
+      "end": "2026-02-18 21:36:22.822947"
+    },
+    {
+      "num": 11,
+      "voxel": 0.2038,
+      "kpVoxel": 0.9675,
+      "shotR": 0.872,
+      "decay": 0.2457,
+      "score": 6.94,
+      "start": "2026-02-18 21:23:58.204071",
+      "end": "2026-02-18 21:46:04.012294"
+    },
+    {
+      "num": 12,
+      "voxel": 0.2996,
+      "kpVoxel": 0.7058,
+      "shotR": 0.763,
+      "decay": 0.3214,
+      "score": 4.61,
+      "start": "2026-02-18 21:29:57.453745",
+      "end": "2026-02-18 22:21:33.610143"
+    },
+    {
+      "num": 13,
+      "voxel": 0.2836,
+      "kpVoxel": 0.5267,
+      "shotR": 1.5754,
+      "decay": 0.3759,
+      "score": 63.7,
+      "start": "2026-02-18 21:36:22.837870",
+      "end": "2026-02-18 23:56:34.117288"
+    },
+    {
+      "num": 14,
+      "voxel": 0.1959,
+      "kpVoxel": 0.4174,
+      "shotR": 0.7893,
+      "decay": 0.3147,
+      "score": 8.75,
+      "start": "2026-02-18 21:46:04.028783",
+      "end": "2026-02-19 04:03:15.974036"
+    },
+    {
+      "num": 15,
+      "voxel": 0.1583,
+      "kpVoxel": 0.4706,
+      "shotR": 1.9799,
+      "decay": 0.718,
+      "score": 62.39,
+      "start": "2026-02-18 22:21:33.626170",
+      "end": "2026-02-19 02:23:48.100659"
+    },
+    {
+      "num": 16,
+      "voxel": 0.2559,
+      "kpVoxel": 0.3387,
+      "shotR": 1.9722,
+      "decay": 0.6348,
+      "score": 80.51,
+      "start": "2026-02-18 22:55:58.129494",
+      "end": "2026-02-19 09:39:21.734956"
+    },
+    {
+      "num": 17,
+      "voxel": 0.2699,
+      "kpVoxel": 0.3451,
+      "shotR": 1.9958,
+      "decay": 0.117,
+      "score": 75.45,
+      "start": "2026-02-18 23:56:34.137198",
+      "end": "2026-02-19 09:56:49.290552"
+    },
+    {
+      "num": 24,
+      "voxel": 0.3168,
+      "kpVoxel": 0.4695,
+      "shotR": 2.2816,
+      "decay": 0.5884,
+      "score": 76.92,
+      "start": "2026-02-19 11:26:03.899444",
+      "end": "2026-02-19 14:42:28.168762"
+    },
+    {
+      "num": 25,
+      "voxel": 0.3446,
+      "kpVoxel": 0.6223,
+      "shotR": 2.325,
+      "decay": 0.5778,
+      "score": 62.92,
+      "start": "2026-02-19 11:26:03.899980",
+      "end": "2026-02-19 12:37:22.724064"
+    },
+    {
+      "num": 26,
+      "voxel": 0.3053,
+      "kpVoxel": 0.4582,
+      "shotR": 2.2255,
+      "decay": 0.65,
+      "score": 75.25,
+      "start": "2026-02-19 12:37:22.741403",
+      "end": "2026-02-19 16:19:18.278177"
+    },
+    {
+      "num": 27,
+      "voxel": 0.2547,
+      "kpVoxel": 0.4055,
+      "shotR": 2.1525,
+      "decay": 0.6763,
+      "score": 75.7,
+      "start": "2026-02-19 14:42:28.195926",
+      "end": "2026-02-19 21:06:12.465064"
+    },
+    {
+      "num": 28,
+      "voxel": 0.3331,
+      "kpVoxel": 0.4841,
+      "shotR": 2.4861,
+      "decay": 0.5442,
+      "score": 74.63,
+      "start": "2026-02-19 16:19:18.298179",
+      "end": "2026-02-19 19:12:32.816520"
+    },
+    {
+      "num": 29,
+      "voxel": 0.3183,
+      "kpVoxel": 0.5685,
+      "shotR": 1.9622,
+      "decay": 0.6598,
+      "score": 72.26,
+      "start": "2026-02-19 19:12:32.846105",
+      "end": "2026-02-19 21:17:41.872174"
+    },
+    {
+      "num": 32,
+      "voxel": 0.2931,
+      "kpVoxel": 0.5153,
+      "shotR": 2.102,
+      "decay": 0.8053,
+      "score": 74.68,
+      "start": "2026-02-19 22:06:24.512939",
+      "end": "2026-02-20 00:31:57.861529"
+    },
+    {
+      "num": 33,
+      "voxel": 0.2544,
+      "kpVoxel": 0.4064,
+      "shotR": 1.8687,
+      "decay": 0.7847,
+      "score": 78.83,
+      "start": "2026-02-19 22:06:24.546448",
+      "end": "2026-02-20 04:00:04.894039"
+    },
+    {
+      "num": 34,
+      "voxel": 0.2585,
+      "kpVoxel": 0.4414,
+      "shotR": 1.8772,
+      "decay": 0.5263,
+      "score": 82.13,
+      "start": "2026-02-20 00:31:57.880278",
+      "end": "2026-02-20 04:57:17.206469"
+    },
+    {
+      "num": 35,
+      "voxel": 0.261,
+      "kpVoxel": 0.4319,
+      "shotR": 1.8353,
+      "decay": 0.7956,
+      "score": 80.77,
+      "start": "2026-02-20 04:00:04.937684",
+      "end": "2026-02-20 08:43:54.351162"
+    },
+    {
+      "num": 55,
+      "voxel": 0.2209,
+      "kpVoxel": 0.5253,
+      "shotR": 1.8486,
+      "decay": 0.5309,
+      "score": 70.74,
+      "start": "2026-02-20 13:29:06.628350",
+      "end": "2026-02-20 16:10:05.179281"
+    },
+    {
+      "num": 57,
+      "voxel": 0.2384,
+      "kpVoxel": 0.4404,
+      "shotR": 1.8229,
+      "decay": 0.8917,
+      "score": 76.12,
+      "start": "2026-02-20 17:42:31.160643",
+      "end": "2026-02-20 22:33:12.076267"
+    },
+    {
+      "num": 58,
+      "voxel": 0.241,
+      "kpVoxel": 0.4371,
+      "shotR": 1.493,
+      "decay": 0.8992,
+      "score": 65.24,
+      "start": "2026-02-20 17:42:31.197457",
+      "end": "2026-02-20 22:43:53.239964"
+    },
+    {
+      "num": 59,
+      "voxel": 0.2844,
+      "kpVoxel": 0.5623,
+      "shotR": 1.4941,
+      "decay": 0.8986,
+      "score": 55.17,
+      "start": "2026-02-20 17:42:31.241338",
+      "end": "2026-02-20 19:46:09.320247"
+    },
+    {
+      "num": 60,
+      "voxel": 0.2409,
+      "kpVoxel": 0.4414,
+      "shotR": 1.4831,
+      "decay": 0.8763,
+      "score": 58.31,
+      "start": "2026-02-20 17:42:31.243293",
+      "end": "2026-02-20 22:34:55.531680"
+    },
+    {
+      "num": 61,
+      "voxel": 0.2446,
+      "kpVoxel": 0.4429,
+      "shotR": 1.4877,
+      "decay": 0.8961,
+      "score": 64.23,
+      "start": "2026-02-20 17:42:31.407005",
+      "end": "2026-02-20 22:29:00.875458"
+    },
+    {
+      "num": 62,
+      "voxel": 0.2416,
+      "kpVoxel": 0.4369,
+      "shotR": 1.4427,
+      "decay": 0.8468,
+      "score": 63.21,
+      "start": "2026-02-20 17:42:31.423991",
+      "end": "2026-02-20 22:46:05.999063"
+    },
+    {
+      "num": 63,
+      "voxel": 0.2407,
+      "kpVoxel": 0.4471,
+      "shotR": 1.4849,
+      "decay": 0.8649,
+      "score": 72.12,
+      "start": "2026-02-20 17:42:31.547912",
+      "end": "2026-02-20 22:21:24.532590"
+    },
+    {
+      "num": 64,
+      "voxel": 0.2328,
+      "kpVoxel": 0.4403,
+      "shotR": 1.4767,
+      "decay": 0.8689,
+      "score": 65.25,
+      "start": "2026-02-20 17:42:31.403006",
+      "end": "2026-02-20 22:41:15.742214"
+    },
+    {
+      "num": 65,
+      "voxel": 0.2399,
+      "kpVoxel": 0.4424,
+      "shotR": 1.825,
+      "decay": 0.8339,
+      "score": 74.08,
+      "start": "2026-02-20 19:46:09.343323",
+      "end": "2026-02-21 00:28:52.564809"
+    },
+    {
+      "num": 66,
+      "voxel": 0.2639,
+      "kpVoxel": 0.4338,
+      "shotR": 1.8279,
+      "decay": 0.6102,
+      "score": 79.4,
+      "start": "2026-02-20 22:21:24.551963",
+      "end": "2026-02-21 03:08:21.507736"
+    },
+    {
+      "num": 67,
+      "voxel": 0.2638,
+      "kpVoxel": 0.4305,
+      "shotR": 1.8455,
+      "decay": 0.5117,
+      "score": 81.04,
+      "start": "2026-02-20 22:29:00.894976",
+      "end": "2026-02-21 03:23:28.171568"
+    },
+    {
+      "num": 68,
+      "voxel": 0.2634,
+      "kpVoxel": 0.5027,
+      "shotR": 1.9032,
+      "decay": 0.6297,
+      "score": 78.47,
+      "start": "2026-02-20 22:33:12.096917",
+      "end": "2026-02-21 01:26:28.537507"
+    },
+    {
+      "num": 69,
+      "voxel": 0.2619,
+      "kpVoxel": 0.4891,
+      "shotR": 1.6595,
+      "decay": 0.4963,
+      "score": 74.18,
+      "start": "2026-02-20 22:34:55.553001",
+      "end": "2026-02-21 01:46:39.904102"
+    },
+    {
+      "num": 70,
+      "voxel": 0.2609,
+      "kpVoxel": 0.4904,
+      "shotR": 1.6542,
+      "decay": 0.4887,
+      "score": 78.05,
+      "start": "2026-02-20 22:41:15.765076",
+      "end": "2026-02-21 01:51:44.263904"
+    },
+    {
+      "num": 71,
+      "voxel": 0.263,
+      "kpVoxel": 0.4935,
+      "shotR": 1.6617,
+      "decay": 0.622,
+      "score": 79.44,
+      "start": "2026-02-20 22:43:53.260693",
+      "end": "2026-02-21 01:49:17.137128"
+    },
+    {
+      "num": 72,
+      "voxel": 0.2661,
+      "kpVoxel": 0.5004,
+      "shotR": 1.6812,
+      "decay": 0.6324,
+      "score": 76.49,
+      "start": "2026-02-20 22:46:06.022544",
+      "end": "2026-02-21 01:42:01.630793"
+    },
+    {
+      "num": 73,
+      "voxel": 0.265,
+      "kpVoxel": 0.4974,
+      "shotR": 1.6621,
+      "decay": 0.6264,
+      "score": 73.54,
+      "start": "2026-02-21 00:28:52.583082",
+      "end": "2026-02-21 03:28:11.418905"
+    },
+    {
+      "num": 74,
+      "voxel": 0.2636,
+      "kpVoxel": 0.4905,
+      "shotR": 1.6495,
+      "decay": 0.4944,
+      "score": 73.17,
+      "start": "2026-02-21 01:26:28.555689",
+      "end": "2026-02-21 04:34:58.633222"
+    },
+    {
+      "num": 75,
+      "voxel": 0.2807,
+      "kpVoxel": 0.5465,
+      "shotR": 1.7553,
+      "decay": 0.5125,
+      "score": 72.08,
+      "start": "2026-02-21 01:42:01.650323",
+      "end": "2026-02-21 03:46:45.256398"
+    },
+    {
+      "num": 76,
+      "voxel": 0.255,
+      "kpVoxel": 0.4069,
+      "shotR": 1.7674,
+      "decay": 0.7869,
+      "score": 77.84,
+      "start": "2026-02-21 01:46:39.921954",
+      "end": "2026-02-21 07:49:07.536238"
+    },
+    {
+      "num": 77,
+      "voxel": 0.281,
+      "kpVoxel": 0.5479,
+      "shotR": 1.7568,
+      "decay": 0.7425,
+      "score": 68.75,
+      "start": "2026-02-21 01:49:17.155267",
+      "end": "2026-02-21 03:52:44.488872"
+    },
+    {
+      "num": 78,
+      "voxel": 0.2829,
+      "kpVoxel": 0.5493,
+      "shotR": 1.7604,
+      "decay": 0.6967,
+      "score": 71.61,
+      "start": "2026-02-21 01:51:44.282173",
+      "end": "2026-02-21 03:53:34.101008"
+    },
+    {
+      "num": 79,
+      "voxel": 0.2829,
+      "kpVoxel": 0.5466,
+      "shotR": 1.761,
+      "decay": 0.7005,
+      "score": 71.62,
+      "start": "2026-02-21 03:08:21.527454",
+      "end": "2026-02-21 05:13:10.502000"
+    },
+    {
+      "num": 80,
+      "voxel": 0.2798,
+      "kpVoxel": 0.5468,
+      "shotR": 1.7659,
+      "decay": 0.5514,
+      "score": 71.28,
+      "start": "2026-02-21 03:23:28.195718",
+      "end": "2026-02-21 05:29:08.873563"
+    },
+    {
+      "num": 81,
+      "voxel": 0.2802,
+      "kpVoxel": 0.5449,
+      "shotR": 1.7653,
+      "decay": 0.5452,
+      "score": 73.21,
+      "start": "2026-02-21 03:28:11.435934",
+      "end": "2026-02-21 05:34:31.879699"
+    },
+    {
+      "num": 82,
+      "voxel": 0.2764,
+      "kpVoxel": 0.6908,
+      "shotR": 2.0881,
+      "decay": 0.454,
+      "score": 67.06,
+      "start": "2026-02-21 03:46:45.274149",
+      "end": "2026-02-21 04:41:55.065873"
+    },
+    {
+      "num": 83,
+      "voxel": 0.2179,
+      "kpVoxel": 0.3722,
+      "shotR": 1.934,
+      "decay": 0.454,
+      "score": 80.34,
+      "start": "2026-02-21 03:52:44.505654",
+      "end": "2026-02-21 12:40:18.251916"
+    },
+    {
+      "num": 84,
+      "voxel": 0.2162,
+      "kpVoxel": 0.3762,
+      "shotR": 2.0709,
+      "decay": 0.4439,
+      "score": 77.39,
+      "start": "2026-02-21 03:53:34.118173",
+      "end": "2026-02-21 12:24:05.826613"
+    },
+    {
+      "num": 85,
+      "voxel": 0.2221,
+      "kpVoxel": 0.3722,
+      "shotR": 2.0548,
+      "decay": 0.5589,
+      "score": 77.67,
+      "start": "2026-02-21 04:34:58.654563",
+      "end": "2026-02-21 13:19:21.475203"
+    },
+    {
+      "num": 86,
+      "voxel": 0.2233,
+      "kpVoxel": 0.375,
+      "shotR": 1.9259,
+      "decay": 0.5592,
+      "score": 77.67,
+      "start": "2026-02-21 04:41:55.082709",
+      "end": "2026-02-21 13:10:40.452794"
+    },
+    {
+      "num": 87,
+      "voxel": 0.2511,
+      "kpVoxel": 0.4043,
+      "shotR": 1.9383,
+      "decay": 0.5647,
+      "score": 80.38,
+      "start": "2026-02-21 05:13:10.522060",
+      "end": "2026-02-21 11:23:30.584905"
+    },
+    {
+      "num": 88,
+      "voxel": 0.2515,
+      "kpVoxel": 0.4039,
+      "shotR": 1.9189,
+      "decay": 0.5665,
+      "score": 81.36,
+      "start": "2026-02-21 05:29:08.890260",
+      "end": "2026-02-21 11:40:47.032387"
+    },
+    {
+      "num": 89,
+      "voxel": 0.2517,
+      "kpVoxel": 0.4027,
+      "shotR": 1.9136,
+      "decay": 0.5762,
+      "score": 78.44,
+      "start": "2026-02-21 05:34:31.896743",
+      "end": "2026-02-21 11:50:23.922950"
+    },
+    {
+      "num": 90,
+      "voxel": 0.2913,
+      "kpVoxel": 0.4611,
+      "shotR": 1.9157,
+      "decay": 0.5838,
+      "score": 78.11,
+      "start": "2026-02-21 07:49:07.556929",
+      "end": "2026-02-21 11:29:13.965418"
+    }
+  ],
+  "completed": 63,
+  "running": 22,
+  "total": 99,
+  "generated": "2026-02-21 14:03:09",
+  "workers": [
+    {
+      "worker": 0,
+      "trial": 92,
+      "phase": "matching",
+      "params": {
+        "VoxelSize": 0.2254,
+        "KpVoxelSize": 0.3772,
+        "ShotRadius": 2.0507,
+        "IcpDecay": 0.5765
+      },
+      "extraction": {
+        "done": 300,
+        "total": 300,
+        "elapsed": 24
+      },
+      "matching": {
+        "done": 25,
+        "total": 100,
+        "correct": 19,
+        "wrong": 6,
+        "elapsed": 8232,
+        "accuracy_curve": [
+          [
+            1,
+            100.0
+          ],
+          [
+            2,
+            100.0
+          ],
+          [
+            3,
+            100.0
+          ],
+          [
+            4,
+            100.0
+          ],
+          [
+            5,
+            100.0
+          ],
+          [
+            6,
+            83.3
+          ],
+          [
+            7,
+            71.4
+          ],
+          [
+            8,
+            62.5
+          ],
+          [
+            9,
+            66.7
+          ],
+          [
+            10,
+            70.0
+          ],
+          [
+            11,
+            72.7
+          ],
+          [
+            12,
+            75.0
+          ],
+          [
+            13,
+            76.9
+          ],
+          [
+            14,
+            78.6
+          ],
+          [
+            15,
+            80.0
+          ],
+          [
+            16,
+            81.2
+          ],
+          [
+            17,
+            76.5
+          ],
+          [
+            18,
+            77.8
+          ],
+          [
+            19,
+            73.7
+          ],
+          [
+            20,
+            75.0
+          ],
+          [
+            21,
+            76.2
+          ],
+          [
+            22,
+            72.7
+          ],
+          [
+            23,
+            73.9
+          ],
+          [
+            24,
+            75.0
+          ],
+          [
+            25,
+            76.0
+          ]
+        ]
+      },
+      "timestamp": "2026-02-21 13:46:49"
+    },
+    {
+      "worker": 1,
+      "trial": 96,
+      "phase": "matching",
+      "params": {
+        "VoxelSize": 0.2283,
+        "KpVoxelSize": 0.3807,
+        "ShotRadius": 2.0234,
+        "IcpDecay": 0.5669
+      },
+      "extraction": {
+        "done": 300,
+        "total": 300,
+        "elapsed": 24
+      },
+      "matching": {
+        "done": 10,
+        "total": 100,
+        "correct": 7,
+        "wrong": 3,
+        "elapsed": 4103,
+        "accuracy_curve": [
+          [
+            1,
+            100.0
+          ],
+          [
+            2,
+            100.0
+          ],
+          [
+            3,
+            100.0
+          ],
+          [
+            4,
+            100.0
+          ],
+          [
+            5,
+            100.0
+          ],
+          [
+            6,
+            83.3
+          ],
+          [
+            7,
+            71.4
+          ],
+          [
+            8,
+            62.5
+          ],
+          [
+            9,
+            66.7
+          ],
+          [
+            10,
+            70.0
+          ]
+        ]
+      },
+      "timestamp": "2026-02-21 13:49:05"
+    },
+    {
+      "worker": 2,
+      "trial": 98,
+      "phase": "matching",
+      "params": {
+        "VoxelSize": 0.2493,
+        "KpVoxelSize": 0.4164,
+        "ShotRadius": 2.0057,
+        "IcpDecay": 0.6002
+      },
+      "extraction": {
+        "done": 300,
+        "total": 300,
+        "elapsed": 19
+      },
+      "matching": {
+        "done": 5,
+        "total": 100,
+        "correct": 5,
+        "wrong": 0,
+        "elapsed": 1437,
+        "accuracy_curve": [
+          [
+            1,
+            100.0
+          ],
+          [
+            2,
+            100.0
+          ],
+          [
+            3,
+            100.0
+          ],
+          [
+            4,
+            100.0
+          ],
+          [
+            5,
+            100.0
+          ]
+        ]
+      },
+      "timestamp": "2026-02-21 13:43:38"
+    },
+    {
+      "worker": 3,
+      "trial": 91,
+      "phase": "matching",
+      "params": {
+        "VoxelSize": 0.2299,
+        "KpVoxelSize": 0.3863,
+        "ShotRadius": 1.9352,
+        "IcpDecay": 0.5739
+      },
+      "extraction": {
+        "done": 300,
+        "total": 300,
+        "elapsed": 23
+      },
+      "matching": {
+        "done": 30,
+        "total": 100,
+        "correct": 25,
+        "wrong": 5,
+        "elapsed": 8715,
+        "accuracy_curve": [
+          [
+            1,
+            100.0
+          ],
+          [
+            2,
+            100.0
+          ],
+          [
+            3,
+            100.0
+          ],
+          [
+            4,
+            100.0
+          ],
+          [
+            5,
+            100.0
+          ],
+          [
+            6,
+            83.3
+          ],
+          [
+            7,
+            71.4
+          ],
+          [
+            8,
+            62.5
+          ],
+          [
+            9,
+            66.7
+          ],
+          [
+            10,
+            70.0
+          ],
+          [
+            11,
+            72.7
+          ],
+          [
+            12,
+            75.0
+          ],
+          [
+            13,
+            76.9
+          ],
+          [
+            14,
+            78.6
+          ],
+          [
+            15,
+            80.0
+          ],
+          [
+            16,
+            81.2
+          ],
+          [
+            17,
+            76.5
+          ],
+          [
+            18,
+            77.8
+          ],
+          [
+            19,
+            73.7
+          ],
+          [
+            20,
+            75.0
+          ],
+          [
+            21,
+            76.2
+          ],
+          [
+            22,
+            77.3
+          ],
+          [
+            23,
+            78.3
+          ],
+          [
+            24,
+            79.2
+          ],
+          [
+            25,
+            80.0
+          ],
+          [
+            26,
+            80.8
+          ],
+          [
+            27,
+            81.5
+          ],
+          [
+            28,
+            82.1
+          ],
+          [
+            29,
+            82.8
+          ],
+          [
+            30,
+            83.3
+          ]
+        ]
+      },
+      "timestamp": "2026-02-21 13:49:08"
+    },
+    {
+      "worker": 4,
+      "trial": 93,
+      "phase": "matching",
+      "params": {
+        "VoxelSize": 0.2317,
+        "KpVoxelSize": 0.387,
+        "ShotRadius": 2.043,
+        "IcpDecay": 0.4586
+      },
+      "extraction": {
+        "done": 300,
+        "total": 300,
+        "elapsed": 23
+      },
+      "matching": {
+        "done": 25,
+        "total": 100,
+        "correct": 20,
+        "wrong": 5,
+        "elapsed": 7461,
+        "accuracy_curve": [
+          [
+            1,
+            100.0
+          ],
+          [
+            2,
+            100.0
+          ],
+          [
+            3,
+            100.0
+          ],
+          [
+            4,
+            100.0
+          ],
+          [
+            5,
+            100.0
+          ],
+          [
+            6,
+            83.3
+          ],
+          [
+            7,
+            71.4
+          ],
+          [
+            8,
+            62.5
+          ],
+          [
+            9,
+            66.7
+          ],
+          [
+            10,
+            70.0
+          ],
+          [
+            11,
+            72.7
+          ],
+          [
+            12,
+            75.0
+          ],
+          [
+            13,
+            76.9
+          ],
+          [
+            14,
+            78.6
+          ],
+          [
+            15,
+            80.0
+          ],
+          [
+            16,
+            81.2
+          ],
+          [
+            17,
+            76.5
+          ],
+          [
+            18,
+            77.8
+          ],
+          [
+            19,
+            73.7
+          ],
+          [
+            20,
+            75.0
+          ],
+          [
+            21,
+            76.2
+          ],
+          [
+            22,
+            77.3
+          ],
+          [
+            23,
+            78.3
+          ],
+          [
+            24,
+            79.2
+          ],
+          [
+            25,
+            80.0
+          ]
+        ]
+      },
+      "timestamp": "2026-02-21 13:45:31"
+    },
+    {
+      "worker": 5,
+      "trial": 95,
+      "phase": "matching",
+      "params": {
+        "VoxelSize": 0.272,
+        "KpVoxelSize": 0.4725,
+        "ShotRadius": 1.9865,
+        "IcpDecay": 0.4553
+      },
+      "extraction": {
+        "done": 300,
+        "total": 300,
+        "elapsed": 16
+      },
+      "matching": {
+        "done": 40,
+        "total": 100,
+        "correct": 34,
+        "wrong": 6,
+        "elapsed": 5372,
+        "accuracy_curve": [
+          [
+            1,
+            100.0
+          ],
+          [
+            2,
+            100.0
+          ],
+          [
+            3,
+            100.0
+          ],
+          [
+            4,
+            100.0
+          ],
+          [
+            5,
+            100.0
+          ],
+          [
+            6,
+            83.3
+          ],
+          [
+            7,
+            71.4
+          ],
+          [
+            8,
+            62.5
+          ],
+          [
+            9,
+            66.7
+          ],
+          [
+            10,
+            70.0
+          ],
+          [
+            11,
+            72.7
+          ],
+          [
+            12,
+            75.0
+          ],
+          [
+            13,
+            76.9
+          ],
+          [
+            14,
+            78.6
+          ],
+          [
+            15,
+            80.0
+          ],
+          [
+            16,
+            81.2
+          ],
+          [
+            17,
+            76.5
+          ],
+          [
+            18,
+            77.8
+          ],
+          [
+            19,
+            73.7
+          ],
+          [
+            20,
+            75.0
+          ],
+          [
+            21,
+            76.2
+          ],
+          [
+            22,
+            77.3
+          ],
+          [
+            23,
+            78.3
+          ],
+          [
+            24,
+            79.2
+          ],
+          [
+            25,
+            80.0
+          ],
+          [
+            26,
+            80.8
+          ],
+          [
+            27,
+            81.5
+          ],
+          [
+            28,
+            82.1
+          ],
+          [
+            29,
+            82.8
+          ],
+          [
+            30,
+            83.3
+          ],
+          [
+            31,
+            83.9
+          ],
+          [
+            32,
+            84.4
+          ],
+          [
+            33,
+            84.8
+          ],
+          [
+            34,
+            85.3
+          ],
+          [
+            35,
+            85.7
+          ],
+          [
+            36,
+            86.1
+          ],
+          [
+            37,
+            86.5
+          ],
+          [
+            38,
+            86.8
+          ],
+          [
+            39,
+            87.2
+          ],
+          [
+            40,
+            85.0
+          ]
+        ]
+      },
+      "timestamp": "2026-02-21 13:53:54"
+    },
+    {
+      "worker": 6,
+      "trial": 94,
+      "phase": "matching",
+      "params": {
+        "VoxelSize": 0.2262,
+        "KpVoxelSize": 0.3787,
+        "ShotRadius": 2.0155,
+        "IcpDecay": 0.4592
+      },
+      "extraction": {
+        "done": 300,
+        "total": 300,
+        "elapsed": 24
+      },
+      "matching": {
+        "done": 20,
+        "total": 100,
+        "correct": 15,
+        "wrong": 5,
+        "elapsed": 6945,
+        "accuracy_curve": [
+          [
+            1,
+            100.0
+          ],
+          [
+            2,
+            100.0
+          ],
+          [
+            3,
+            100.0
+          ],
+          [
+            4,
+            100.0
+          ],
+          [
+            5,
+            100.0
+          ],
+          [
+            6,
+            83.3
+          ],
+          [
+            7,
+            71.4
+          ],
+          [
+            8,
+            62.5
+          ],
+          [
+            9,
+            66.7
+          ],
+          [
+            10,
+            70.0
+          ],
+          [
+            11,
+            72.7
+          ],
+          [
+            12,
+            75.0
+          ],
+          [
+            13,
+            76.9
+          ],
+          [
+            14,
+            78.6
+          ],
+          [
+            15,
+            80.0
+          ],
+          [
+            16,
+            81.2
+          ],
+          [
+            17,
+            76.5
+          ],
+          [
+            18,
+            77.8
+          ],
+          [
+            19,
+            73.7
+          ],
+          [
+            20,
+            75.0
+          ]
+        ]
+      },
+      "timestamp": "2026-02-21 13:46:32"
+    },
+    {
+      "worker": 7,
+      "trial": 97,
+      "phase": "matching",
+      "params": {
+        "VoxelSize": 0.2293,
+        "KpVoxelSize": 0.3921,
+        "ShotRadius": 2.0207,
+        "IcpDecay": 0.5187
+      },
+      "extraction": {
+        "done": 300,
+        "total": 300,
+        "elapsed": 24
+      },
+      "matching": {
+        "done": 5,
+        "total": 100,
+        "correct": 5,
+        "wrong": 0,
+        "elapsed": 1830,
+        "accuracy_curve": [
+          [
+            1,
+            100.0
+          ],
+          [
+            2,
+            100.0
+          ],
+          [
+            3,
+            100.0
+          ],
+          [
+            4,
+            100.0
+          ],
+          [
+            5,
+            100.0
+          ]
+        ]
+      },
+      "timestamp": "2026-02-21 13:41:34"
+    }
+  ]
+};
+
+function render(data) {
+  const trials = data.trials;
+  if (!trials.length) return;
+
+  document.getElementById('lastUpdate').textContent = data.generated;
+  document.getElementById('statCompleted').textContent = data.completed;
+  document.getElementById('statRunning').textContent = data.running;
+
+  const best = trials.reduce((a, b) => a.score > b.score ? a : b);
+  document.getElementById('statBest').textContent = best.score.toFixed(1);
+
+  // Progress bar
+  const pct = Math.round((data.completed / 50) * 100);
+  document.getElementById('progressPct').textContent = pct + '%';
+  document.getElementById('progressFill').style.width = pct + '%';
+  document.getElementById('progressCount').textContent = data.completed + ' / 50 trials completed';
+  const fillEl = document.getElementById('progressFill');
+  if (data.running > 0) {
+    fillEl.classList.add('active');
+    const remaining = 50 - data.completed;
+    // Estimate ~30 min per trial with 2 workers
+    const etaMin = Math.round(remaining / 2 * 30);
+    const etaH = Math.floor(etaMin / 60);
+    const etaM = etaMin % 60;
+    document.getElementById('progressEta').textContent = 
+      '~' + (etaH > 0 ? etaH + 'h ' : '') + etaM + 'm remaining (est.)';
+  } else if (data.completed >= 50) {
+    fillEl.classList.remove('active');
+    fillEl.style.background = 'linear-gradient(90deg, #3fb950, #56d364)';
+    document.getElementById('progressEta').textContent = '✅ Complete!';
+  } else {
+    fillEl.classList.remove('active');
+    document.getElementById('progressEta').textContent = 'Paused — no workers running';
+  }
+
+  // Live worker cards
+  const workers = data.workers || [];
+  let liveHtml = '';
+  workers.forEach((w, idx) => {
+    const phase = w.phase || 'idle';
+    const isActive = phase !== 'idle';
+    const m = w.matching || {};
+    const e = w.extraction || {};
+    const p = w.params || {};
+    const done = phase === 'matching' ? (m.done || 0) : (e.done || 0);
+    const total = phase === 'matching' ? (m.total || 100) : (e.total || 300);
+    const pctW = total > 0 ? Math.round(100 * done / total) : 0;
+    const acc = m.done > 0 ? (100 * (m.correct || 0) / m.done).toFixed(1) : '—';
+
+    liveHtml += `
+      <div class="live-card ${isActive ? 'active' : ''}">
+        ${isActive ? '<div class="pulse"></div>' : ''}
+        <div class="live-header">Worker ${w.worker} — Trial #${w.trial}</div>
+        <div class="live-params">
+          <span class="tag">V: <b>${p.VoxelSize || '?'}</b></span>
+          <span class="tag">K: <b>${p.KpVoxelSize || '?'}</b></span>
+          <span class="tag">S: <b>${p.ShotRadius || '?'}</b></span>
+          <span class="tag">D: <b>${p.IcpDecay || '?'}</b></span>
+        </div>
+        <div class="live-stats">
+          <span>${phase === 'extracting' ? '🔧 Extracting' : '🔍 Matching'}: ${done}/${total}</span>
+          ${phase === 'matching' ? `<span class="acc">${acc}% accuracy (${m.correct || 0} correct)</span>` : ''}
+        </div>
+        <div class="live-mini-progress">
+          <div class="live-mini-fill" style="width: ${pctW}%; background: ${phase === 'matching' ? 'linear-gradient(90deg, #58a6ff, #a371f7)' : 'linear-gradient(90deg, #238636, #3fb950)'}"></div>
+        </div>
+        ${phase === 'matching' ? `<div id="liveCurve${idx}" style="height:180px; margin-top:8px"></div>` : `<div style="text-align:center;color:#484f58;font-size:12px;padding:20px">Accuracy curve appears during matching phase</div>`}
+        <div style="font-size:11px;color:#484f58;margin-top:4px">Updated: ${w.timestamp || '—'}</div>
+      </div>`;
+  });
+
+  if (liveHtml) {
+    document.getElementById('liveSection').innerHTML = liveHtml;
+  } else {
+    document.getElementById('liveSection').innerHTML =
+      '<div class="live-card" style="grid-column:1/-1;text-align:center;padding:24px;color:#484f58">' +
+      'No live workers detected. Start the optimizer to see live progress here.' +
+      '</div>';
+  }
+
+  // Render accuracy curves
+  workers.forEach((w, idx) => {
+    const curve = w.matching?.accuracy_curve;
+    if (curve && curve.length > 0 && w.phase === 'matching') {
+      const xs = curve.map(c => c[0]);
+      const ys = curve.map(c => c[1]);
+      Plotly.newPlot(`liveCurve${idx}`, [
+        { x: xs, y: ys, mode: 'lines+markers', name: 'Accuracy %',
+           line: { color: '#58a6ff', width: 2 },
+           marker: { size: 4 },
+           fill: 'tozeroy', fillcolor: 'rgba(88,166,255,0.1)' }
+      ], {
+        paper_bgcolor: 'transparent', plot_bgcolor: '#0d1117',
+        font: { color: '#8b949e', size: 10 },
+        xaxis: { title: 'Queries Processed', gridcolor: '#21262d', range: [0, 100] },
+        yaxis: { title: 'Accuracy %', gridcolor: '#21262d', range: [0, 100] },
+        margin: { l: 40, r: 10, t: 5, b: 30 },
+        showlegend: false,
+      }, { responsive: true });
+    }
+  });
+
+  // Best params section
+  document.getElementById('bestParamsSection').innerHTML = `
+    <div class="best-params">
+      <h2>🏅 Best Settings Found (Trial #${best.num})</h2>
+      <div class="param-grid">
+        <div class="param-box">
+          <div class="name">Voxel Size</div>
+          <div class="val">${best.voxel}</div>
+          <div class="unit">mm — scan detail level</div>
+        </div>
+        <div class="param-box">
+          <div class="name">Keypoint Spacing</div>
+          <div class="val">${best.kpVoxel}</div>
+          <div class="unit">mm — feature point density</div>
+        </div>
+        <div class="param-box">
+          <div class="name">Shot Radius</div>
+          <div class="val">${best.shotR}</div>
+          <div class="unit">mm — neighborhood size</div>
+        </div>
+        <div class="param-box">
+          <div class="name">ICP Decay</div>
+          <div class="val">${best.decay}</div>
+          <div class="unit">strictness factor</div>
+        </div>
+      </div>
+    </div>`;
+
+  const nums = trials.map(t => t.num);
+  const scores = trials.map(t => t.score);
+  const voxels = trials.map(t => t.voxel);
+  const shots = trials.map(t => t.shotR);
+  const decays = trials.map(t => t.decay);
+
+  // Running best
+  let bestSoFar = [], cur = -1;
+  scores.forEach(s => { cur = Math.max(cur, s); bestSoFar.push(cur); });
+
+  const dark = {
+    paper_bgcolor: 'transparent', plot_bgcolor: '#0d1117',
+    font: { color: '#8b949e' },
+    xaxis: { gridcolor: '#21262d' }, yaxis: { gridcolor: '#21262d' },
+    margin: { l: 50, r: 20, t: 10, b: 40 }
+  };
+
+  // Chart 1: History
+  Plotly.newPlot('chart1', [
+    { x: nums, y: scores, mode: 'markers', name: 'Score',
+       marker: { size: 10, color: scores, colorscale: 'Viridis' } },
+    { x: nums, y: bestSoFar, mode: 'lines', name: 'Best So Far',
+       line: { color: '#f85149', width: 3 } }
+  ], { ...dark, xaxis: { ...dark.xaxis, title: 'Trial #' },
+        yaxis: { ...dark.yaxis, title: 'Score', range: [0, 100] } },
+  { responsive: true });
+
+  // Chart 2: Voxel vs Score
+  Plotly.newPlot('chart2', [
+    { x: voxels, y: scores, mode: 'markers', name: 'Voxel',
+       marker: { size: 12, color: scores, colorscale: 'Viridis' },
+       text: nums.map(n => 'Trial ' + n), hovertemplate: '%{text}<br>Voxel: %{x:.3f}<br>Score: %{y:.1f}' }
+  ], { ...dark, xaxis: { ...dark.xaxis, title: 'Voxel Size (mm)' },
+        yaxis: { ...dark.yaxis, title: 'Score', range: [0, 100] } },
+  { responsive: true });
+
+  // Chart 3: Shot vs Score
+  Plotly.newPlot('chart3', [
+    { x: shots, y: scores, mode: 'markers', name: 'ShotR',
+       marker: { size: 12, color: scores, colorscale: 'Viridis' },
+       text: nums.map(n => 'Trial ' + n), hovertemplate: '%{text}<br>Radius: %{x:.3f}<br>Score: %{y:.1f}' }
+  ], { ...dark, xaxis: { ...dark.xaxis, title: 'Shot Radius (mm)' },
+        yaxis: { ...dark.yaxis, title: 'Score', range: [0, 100] } },
+  { responsive: true });
+
+  // Chart 4: Voxel vs Shot scatter
+  Plotly.newPlot('chart4', [
+    { x: voxels, y: shots, mode: 'markers+text', name: 'Trials',
+       text: nums.map(n => 'T' + n), textposition: 'top center',
+       textfont: { size: 9, color: '#8b949e' },
+       marker: { size: scores.map(s => 8 + s/5), color: scores,
+                  colorscale: 'Viridis', showscale: true,
+                  colorbar: { title: 'Score' } },
+       hovertemplate: 'Trial %{text}<br>Voxel: %{x:.3f}<br>Shot: %{y:.3f}<br>Score: %{marker.color:.1f}' }
+  ], { ...dark, xaxis: { ...dark.xaxis, title: 'Voxel Size (mm)' },
+        yaxis: { ...dark.yaxis, title: 'Shot Radius (mm)' } },
+  { responsive: true });
+
+  // Chart 5: Decay vs Score
+  Plotly.newPlot('chart5', [
+    { x: decays, y: scores, mode: 'markers', name: 'Decay',
+       marker: { size: 12, color: scores, colorscale: 'Viridis' },
+       text: nums.map(n => 'Trial ' + n), hovertemplate: '%{text}<br>Decay: %{x:.3f}<br>Score: %{y:.1f}' }
+  ], { ...dark, xaxis: { ...dark.xaxis, title: 'ICP Decay' },
+        yaxis: { ...dark.yaxis, title: 'Score', range: [0, 100] } },
+  { responsive: true });
+
+  // Leaderboard
+  const sorted = [...trials].sort((a, b) => b.score - a.score).slice(0, 10);
+  document.getElementById('leaderboardBody').innerHTML = sorted.map((t, i) =>
+    `<tr><td>${i+1}</td><td>T${t.num}</td><td>${t.score.toFixed(1)}</td>` +
+    `<td>${t.voxel}</td><td>${t.kpVoxel}</td><td>${t.shotR}</td><td>${t.decay}</td></tr>`
+  ).join('');
+}
+
+function refreshData() {
+  fetch('trial_data.json?t=' + Date.now())
+    .then(r => r.json())
+    .then(data => { render(data); })
+    .catch(() => {
+      // If fetch fails (file:// protocol), just reload the page
+      window.location.reload();
+    });
+}
+
+render(DATA);
+</script>
+</body>
+</html>

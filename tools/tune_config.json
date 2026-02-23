@@ -1,0 +1,6 @@
+{
+  "VoxelSize": 0.2552,
+  "KeypointVoxelSize": 0.5987,
+  "ShotRadius": 1.7883,
+  "IcpFitnessDecay": 0.3097
+}

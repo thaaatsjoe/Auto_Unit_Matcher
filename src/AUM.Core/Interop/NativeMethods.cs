@@ -28,12 +28,44 @@ public struct VerificationResult
 }
 
 /// <summary>
-/// P/Invoke declarations for the native AUM.Engine.dll (v4.0).
+/// Tunable extraction config for ML parameter optimization.
+/// Mirrors AUM_DescriptorConfig in exports.h.
+/// </summary>
+[StructLayout(LayoutKind.Sequential)]
+public struct DescriptorConfig
+{
+    public float VoxelSize;
+    public float KeypointVoxelSize;
+    public float ShotRadius;
+    public float IcpFitnessDecay;
+    
+    /// <summary>Production defaults.</summary>
+    public static DescriptorConfig Default => new()
+    {
+        VoxelSize = 0.15f,
+        KeypointVoxelSize = 0.8f,
+        ShotRadius = 1.0f,
+        IcpFitnessDecay = 0.5f
+    };
+}
+
+/// <summary>
+/// P/Invoke declarations for the native AUM.Engine.dll (v4.1).
 /// ISS Keypoints + SHOT352 + FAISS Voting + RANSAC + Dense Point-to-Plane ICP.
 /// </summary>
 public static class NativeMethods
 {
     private const string DllName = "AUM.Engine";
+    
+    // ============================================================================
+    // Configuration
+    // ============================================================================
+    
+    [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+    public static extern ErrorCode aum_set_config(ref DescriptorConfig config);
+    
+    [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+    public static extern void aum_reset_config();
     
     // ============================================================================
     // STL Parsing
@@ -97,6 +129,13 @@ public static class NativeMethods
     public static extern ErrorCode aum_verify(
         IntPtr query,
         IntPtr candidate,
+        out VerificationResult out_result);
+    
+    [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+    public static extern ErrorCode aum_verify_with_decay(
+        IntPtr query,
+        IntPtr candidate,
+        float icpFitnessDecay,
         out VerificationResult out_result);
     
     [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
