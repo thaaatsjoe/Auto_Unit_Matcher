@@ -183,11 +183,11 @@ TOP VIEW:
 │                              │                                  │
 │                              ▼                                  │
 │  ┌──────────────────────────────────────────────────────────┐   │
-│  │  CORE ENGINE: C++ (via DLL/interop)                      │   │
-│  │  • Point Cloud Library (PCL) for 3D processing           │   │
-│  │  • FPFH descriptor computation                           │   │
-│  │  • FAISS for fast similarity search                      │   │
-│  │  • Scanner SDK integration                               │   │
+│  │  AI ENGINE: Deep GeoTransformer (AUM V2)                 │   │
+│  │  • 10.3M Parameter PyTorch Neural Network                │   │
+│  │  • Flash Attention for O(N) memory efficiency            │   │
+│  │  • WSL2 Ubuntu + Native SSD training pipeline            │   │
+│  │  • Point Cloud Library (PCL) & FAISS                     │   │
 │  └──────────────────────────────────────────────────────────┘   │
 │                              │                                  │
 │                              ▼                                  │
@@ -279,13 +279,18 @@ Auto_Unit_Matcher/
 │   ├── AUM.Core/                    # C# core logic (wraps C++ engine)
 │   │   ├── AUM.Core.csproj
 │   │   └── ...
-│   └── AUM.Engine/                  # C++ native DLL
-│       ├── CMakeLists.txt           # CMake build config
-│       ├── vcpkg.json               # C++ dependency manifest
-│       └── src/
-│           ├── descriptor.cpp       # FPFH computation
-│           ├── matching.cpp         # FAISS integration
-│           └── exports.h            # C API for P/Invoke
+│   ├── AUM.Engine/                  # Legacy C++ native DLL
+│   │   ├── CMakeLists.txt           # CMake build config
+│   │   ├── vcpkg.json               # C++ dependency manifest
+│   │   └── src/
+│   │       ├── descriptor.cpp       # V1 FPFH computation
+│   │       ├── matching.cpp         # FAISS integration
+│   │       └── exports.h            # C API for P/Invoke
+│   └── tools/
+│       └── v2_training/             # AUM V2 Deep Learning Pipeline
+│           ├── model.py             # 10.3M Param GeoTransformer
+│           ├── train.py             # PyTorch training loop
+│           └── preprocess.py        # Voxel Downsampling
 ├── tests/
 │   ├── AUM.Tests/                   # C# unit tests
 │   └── AUM.Engine.Tests/            # C++ tests
@@ -587,9 +592,10 @@ CREATE INDEX idx_extraction_created ON extraction_queue(file_created_at DESC);
 │  3. Parse STL → Extract point cloud                                  │
 │                    │                                                 │
 │                    ▼                                                 │
-│  4. Compute 3D descriptors (FPFH)                                    │
-│     • Scale-normalized                                               │
-│     • Focus on occlusal + margin regions                             │
+│  4. Compute 3D descriptors (AUM V2 GeoTransformer)                   │
+│     • 10.3M Parameter Deep Neural Network                            │
+│     • 5-Stage KPConv feature extraction                              │
+│     • 6-Layer Flash Attention Transformer sequence                   │
 │                    │                                                 │
 │                    ▼                                                 │
 │  5. Store in fingerprint database:                                   │
@@ -628,7 +634,7 @@ CREATE INDEX idx_extraction_created ON extraction_queue(file_created_at DESC);
 │  4. Point cloud generated from structured light data                 │
 │                    │                                                 │
 │                    ▼                                                 │
-│  5. Descriptors computed (same algorithm as registration)            │
+│  5. Descriptors computed (AUM V2 GeoTransformer inference)           │
 │                    │                                                 │
 │                    ▼                                                 │
 │  6. Query database for matches                                       │
@@ -655,6 +661,32 @@ CREATE INDEX idx_extraction_created ON extraction_queue(file_created_at DESC);
 │  8. Print label with case information                                │
 │     • Uses ABS cached data if available                              │
 │     • Falls back to folder-derived data if ABS unavailable           │
+│                                                                      │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+### 3. AI Model Training Pipeline (WSL2/Docker)
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│  V2 GeoTransformer Training Workflow                                │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                      │
+│  1. Dataset Transfer (Windows -> WSL)                                │
+│     • Raw STLs are transferred over the network to the native        │
+│       Linux disk at: \\wsl.localhost\Ubuntu\home\AUM_Dataset         │
+│                    │                                                 │
+│                    ▼                                                 │
+│  2. Voxel Grid Preprocessing (preprocess.py)                         │
+│     • Parses 20,000+ STLs into PyTorch tensors                       │
+│     • Downsamples geometry to <8192 vertices                         │
+│     • Saves fast-loading .pt binaries to /home/AUM_Dataset_PT        │
+│                    │                                                 │
+│                    ▼                                                 │
+│  3. Heavyweight Training (train.py)                                  │
+│     • Optimizes the 10.3M Parameter GeoTransformer                   │
+│     • gradient_accumulation=16 prevents PCIe/VRAM swapping           │
+│     • Generates State-of-the-Art network checkpoints                 │
 │                                                                      │
 └─────────────────────────────────────────────────────────────────────┘
 ```
@@ -901,7 +933,7 @@ CREATE INDEX idx_scan_history_unit ON scan_history(matched_unit_id);
 
 | Item | Size per unit | 1000 units/day | 1.5 years (~550 days) |
 |------|---------------|----------------|----------------------|
-| FPFH descriptors | ~75 KB avg | ~75 MB/day | **~42 GB** |
+| FPFH / AI descriptors | ~75 KB avg | ~75 MB/day | **~42 GB** |
 | Metadata (SQLite) | ~1 KB | ~1 MB/day | ~550 MB |
 | **Total** | | | **~43 GB** |
 

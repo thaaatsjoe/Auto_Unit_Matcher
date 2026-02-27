@@ -144,6 +144,41 @@ class FlashAttentionLayer(nn.Module):
         out = out.transpose(1, 2).contiguous().view(B, seq_len_q, self.embed_dim)
         return self.out_proj(out)
 
+class TransformerBlock(nn.Module):
+    def __init__(self, embed_dim, num_heads):
+        super().__init__()
+        self.self_attn = FlashAttentionLayer(embed_dim, num_heads)
+        self.cross_attn = FlashAttentionLayer(embed_dim, num_heads)
+        self.norm1 = nn.LayerNorm(embed_dim)
+        self.norm2 = nn.LayerNorm(embed_dim)
+        
+        # Standard Transformer 4x expansion ratio for high capacity
+        self.ffn = nn.Sequential(
+            nn.Linear(embed_dim, embed_dim * 4),
+            nn.GELU(),
+            nn.Linear(embed_dim * 4, embed_dim)
+        )
+        self.norm3 = nn.LayerNorm(embed_dim)
+
+    def forward(self, seq_s, seq_t, pad_mask_s, pad_mask_t):
+        # Self-Attention
+        self_s = self.self_attn(seq_s, seq_s, seq_s, key_padding_mask=pad_mask_s)
+        self_t = self.self_attn(seq_t, seq_t, seq_t, key_padding_mask=pad_mask_t)
+        seq_s = self.norm1(seq_s + self_s)
+        seq_t = self.norm1(seq_t + self_t)
+        
+        # Cross-Attention
+        cross_s = self.cross_attn(seq_s, seq_t, seq_t, key_padding_mask=pad_mask_t)
+        cross_t = self.cross_attn(seq_t, seq_s, seq_s, key_padding_mask=pad_mask_s)
+        seq_s = self.norm2(seq_s + cross_s)
+        seq_t = self.norm2(seq_t + cross_t)
+        
+        # Feed-Forward Network
+        seq_s = self.norm3(seq_s + self.ffn(seq_s))
+        seq_t = self.norm3(seq_t + self.ffn(seq_t))
+        return seq_s, seq_t
+
+
 class GeoTransformer(nn.Module):
     """
     State-of-the-Art Deep Learning architecture for rigorous 3D point cloud registration.
@@ -154,41 +189,44 @@ class GeoTransformer(nn.Module):
     def __init__(self, feature_dim=128):
         super().__init__()
         
-        # 1. Local Geometric Backbone
-        # Employs 3 stages of continuous 3D convolution to extract shallow features
-        self.conv1 = KPConvLayer(in_channels=1, out_channels=32, radius=1.0)
-        self.conv2 = KPConvLayer(in_channels=32, out_channels=64, radius=2.0)
-        self.conv3 = KPConvLayer(in_channels=64, out_channels=feature_dim, radius=4.0)
+        # 1. Massive Hierarchical Geometric Backbone (Targeting 8.5M+ params)
+        # Employs 5 stages of continuous 3D convolution to extract semantic geometries
+        self.conv1 = KPConvLayer(in_channels=1, out_channels=128, radius=1.0)
+        self.conv2 = KPConvLayer(in_channels=128, out_channels=256, radius=2.0)
+        self.conv3 = KPConvLayer(in_channels=256, out_channels=512, radius=4.0)
+        self.conv4 = KPConvLayer(in_channels=512, out_channels=1024, radius=8.0)
+        self.conv5 = KPConvLayer(in_channels=1024, out_channels=2048, radius=16.0)
         
-        # Projection layer for pure 3D coordinates (using constant 1 as input feature)
-        self.proj0 = nn.Linear(3, 1)
+        # Squeeze back into the embedding projection space
+        self.proj_feat = nn.Linear(2048, feature_dim)
         
-        # 2. Global Transformer (Self & Cross Attention)
-        self.self_attn = FlashAttentionLayer(embed_dim=feature_dim, num_heads=4)
-        self.cross_attn = FlashAttentionLayer(embed_dim=feature_dim, num_heads=4)
-        
-        self.norm1 = nn.LayerNorm(feature_dim)
-        self.norm2 = nn.LayerNorm(feature_dim)
+        # 2. Global Transformer (Self & Cross Attention) - 6 Blocks massive sweep (Targeting 1.5M+ params)
+        self.transformer_blocks = nn.ModuleList([
+            TransformerBlock(embed_dim=feature_dim, num_heads=4) for _ in range(6)
+        ])
         
         # 3. Final Feature Projection Head
         self.head = nn.Sequential(
-            nn.Linear(feature_dim * 2, feature_dim),
-            nn.LayerNorm(feature_dim),
+            nn.Linear(feature_dim * 2, feature_dim * 2),
+            nn.LayerNorm(feature_dim * 2),
             nn.ReLU(inplace=True),
-            nn.Linear(feature_dim, feature_dim)
+            nn.Linear(feature_dim * 2, feature_dim)
         )
 
     def extract_features(self, pos, batch):
         """
-        Pass a single point cloud through the 3D CNN backbone.
+        Pass a single point cloud through the deep 3D CNN backbone.
         """
         # Initial dummy feature (just distance from origin or constant 1)
         x = torch.ones((pos.size(0), 1), device=pos.device, dtype=pos.dtype)
         
-        # Pass through multi-scale receptive fields
+        # Pass through massive receptive fields
         x = self.conv1(x, pos, batch)
         x = self.conv2(x, pos, batch)
-        feat = self.conv3(x, pos, batch)
+        x = self.conv3(x, pos, batch)
+        x = self.conv4(x, pos, batch)
+        x = self.conv5(x, pos, batch)
+        feat = self.proj_feat(x)
         
         return feat
 
@@ -209,25 +247,15 @@ class GeoTransformer(nn.Module):
         pad_mask_s = ~mask_s
         pad_mask_t = ~mask_t
         
-        # 3. Self-Attention (Understanding internal geometry)
-        self_s = self.self_attn(seq_s, seq_s, seq_s, key_padding_mask=pad_mask_s)
-        self_t = self.self_attn(seq_t, seq_t, seq_t, key_padding_mask=pad_mask_t)
-        
-        seq_s = self.norm1(seq_s + self_s)
-        seq_t = self.norm1(seq_t + self_t)
-        
-        # 4. Cross-Attention (Information Exchange)
-        cross_s = self.cross_attn(seq_s, seq_t, seq_t, key_padding_mask=pad_mask_t)
-        cross_t = self.cross_attn(seq_t, seq_s, seq_s, key_padding_mask=pad_mask_s)
-        
-        seq_s = self.norm2(seq_s + cross_s)
-        seq_t = self.norm2(seq_t + cross_t)
+        # 3. Transformer Layers (Self & Cross Attention sweep)
+        for block in self.transformer_blocks:
+            seq_s, seq_t = block(seq_s, seq_t, pad_mask_s, pad_mask_t)
         
         # Flatten back to list of variable valid points using mask
         feat_s_global = seq_s[mask_s]
         feat_t_global = seq_t[mask_t]
         
-        # 5. Concatenate Local (Backbone) and Global (Transformer) features
+        # 4. Concatenate Local (Backbone) and Global (Transformer) features
         # This creates the ultimate "SuperPoint Descriptor"
         desc_s = torch.cat([feat_s, feat_s_global], dim=-1)
         desc_t = torch.cat([feat_t, feat_t_global], dim=-1)

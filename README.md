@@ -1,6 +1,6 @@
-# Auto Unit Matcher
+# Auto Unit Matcher (AUM)
 
-Dental restoration identification system using 3D scanning and shape-matching technology.
+Dental restoration identification system using 3D scanning and state-of-the-art shape-matching technology.
 
 ## Project Structure
 
@@ -8,33 +8,33 @@ Dental restoration identification system using 3D scanning and shape-matching te
 Auto_Unit_Matcher/
 ├── AUM.sln                 # Visual Studio solution
 ├── PRD.md                  # Product Requirements Document
+├── tools/
+│   └── v2_training/        # V2 Deep Learning Pipeline (PyTorch)
+│       ├── model.py        # 10.3M Parameter GeoTransformer + Flash Attention
+│       ├── train.py        # WSL2 Accelerated Training Loop
+│       ├── preprocess.py   # Voxel Grid Downsampling & Tensor Serialization
+│       └── loss.py         # Point Matching & Circle Loss
 ├── src/
-│   ├── AUM.Engine/         # C++ engine (PCL, FAISS)
-│   │   ├── CMakeLists.txt
-│   │   ├── vcpkg.json
-│   │   ├── include/        # Headers
-│   │   ├── src/            # Implementation
-│   │   └── tests/          # GTest unit tests
+│   ├── AUM.Engine/         # Legacy V1 C++ engine (PCL, FAISS)
 │   ├── AUM.Core/           # C# core library
-│   │   ├── Data/           # Database layer
-│   │   ├── Services/       # Business services
-│   │   ├── Native/         # P/Invoke wrappers
-│   │   └── Models/         # Domain models
 │   └── AUM.UI/             # WPF application
-│       ├── Views/          # XAML views
-│       ├── ViewModels/     # MVVM view models
-│       └── Styles/         # Themes and styles
 ├── tests/
-│   └── AUM.Tests/          # xUnit tests
 └── docs/                   # Documentation
 ```
 
 ## Prerequisites
 
+### Local C#/C++ App
 - Visual Studio 2022 (17.x+) with C++ and .NET workloads
 - .NET SDK 8.0+
 - vcpkg with packages: `pcl`, `faiss`, `sqlite3`, `gtest`
 - CMake 3.20+
+
+### V2 Deep Learning Training (WSL2)
+- Windows Subsystem for Linux (Ubuntu)
+- Docker Engine (Native WSL via `apt-get`, bypassing Docker Desktop)
+- Native Linux SSD directory for dataset (e.g. `/home/AUM_Dataset_PT`) to prevent $I/O$ bottlenecks.
+- NVIDIA GPU (RTX 3080 Ti / 4090) with 12GB+ VRAM & Linux CUDA drivers.
 
 ## Building
 
@@ -63,6 +63,25 @@ dotnet test
 cd src/AUM.Engine/build
 ctest --output-on-failure
 ```
+
+## Training the AUM V2 Deep Learning Engine
+
+The AUM V2 pipeline utilizes a native Linux filesystem within WSL2 to process terabytes of 3D data without Windows I/O bottlenecks.
+
+1. **Transfer the Dataset:** Place your raw `.stl` training files into the WSL Ubuntu distribution at:
+   `\\wsl.localhost\Ubuntu\home\AUM_Dataset`
+
+2. **Preprocess (Voxel Downsampling):**
+   ```bash
+   wsl -d Ubuntu docker exec -it aum-training-v4 /bin/bash
+   python preprocess.py
+   ```
+   *This serializes the STLs into optimized `.pt` tensors at `/home/AUM_Dataset_PT`.*
+
+3. **Start the Heavyweight Training Loop:**
+   ```bash
+   python train.py --data_dir /home/AUM_Dataset_PT --batch_size 1 --grad_accum 16
+   ```
 
 ## Development Phases
 

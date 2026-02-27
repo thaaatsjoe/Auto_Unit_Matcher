@@ -122,7 +122,17 @@ class PrecompiledTensorDataset(torch.utils.data.Dataset):
         
     def __getitem__(self, idx):
         # Native torch.load takes <0.001 seconds
-        return torch.load(self.files[idx], map_location='cpu', weights_only=True)
+        data = torch.load(self.files[idx], map_location='cpu', weights_only=True)
+        
+        # Strict Hardware Safety Cap: Prevent outlier sequences from exploding the batch padding.
+        # Randomly subsample any cloud exceeding 8192 points down to exactly 8192 points.
+        for key in ['source_cloud', 'target_cloud']:
+            if data[key].shape[0] > 8192:
+                N = data[key].shape[0]
+                indices = torch.randperm(N)[:8192]
+                data[key] = data[key][indices]
+                
+        return data
 
 def main():
     parser = argparse.ArgumentParser(description="AUM V2 GeoTransformer Training")
