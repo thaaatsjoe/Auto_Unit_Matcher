@@ -125,6 +125,16 @@
                                 Background="#2196F3"
                                 Foreground="White"
                                 ToolTip="Load an STL file for testing (Development)" />
+
+                        <!-- V2 ONNX Test button -->
+                        <Button Content="Run V2 ML Test" 
+                                Click="RunV2MlTest_Click"
+                                Width="150" Height="40"
+                                Margin="0,0,8,0"
+                                FontWeight="Bold"
+                                Background="#9C27B0"
+                                Foreground="White"
+                                ToolTip="Run the ONNX V2 ML Pipeline Test" />
                     </StackPanel>
                 </Grid>
             </Border>

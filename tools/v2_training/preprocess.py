@@ -51,9 +51,9 @@ def process_single_file(idx, dataset_kwargs, out_dir):
 def main():
     parser = argparse.ArgumentParser(description="Convert STLs to PyTorch Tensors")
     parser.add_argument("--data_dir", type=str, default="/workspace/data", help="STL Directory")
-    parser.add_argument("--out_dir", type=str, default="/workspace/data_pt", help="Tensor Output Directory")
+    parser.add_argument("--out_dir", type=str, default="/home/AUM_Dataset_PT", help="Tensor Output Directory (Native Linux Ext4)")
     parser.add_argument("--workers", type=int, default=os.cpu_count() - 2, help="CPU Cores to dedicate")
-    parser.add_argument("--points", type=int, default=4096, help="Points to sample per crown")
+    parser.add_argument("--voxel", type=float, default=0.2, help="Voxel Grid Downsample Resolution")
     args = parser.parse_args()
 
     # Create the output directory
@@ -68,7 +68,7 @@ def main():
     print(f"Scanning raw STL files in: {args.data_dir}...")
     dataset_kwargs = {
         'data_dir': args.data_dir,
-        'num_points': args.points,
+        'voxel_size': args.voxel,
         'noise_std': 0.005
     }
     

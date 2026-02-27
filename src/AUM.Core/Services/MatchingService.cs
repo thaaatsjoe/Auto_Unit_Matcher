@@ -2,6 +2,8 @@ using AUM.Core.Data.Repositories;
 using AUM.Core.Engine;
 using AUM.Core.Interop;
 using Microsoft.Extensions.Logging;
+using System;
+using System.IO;
 
 namespace AUM.Core.Services;
 
@@ -17,15 +19,18 @@ public class MatchingService : IMatchingService
     private readonly IFingerprintEngine _engine;
     private readonly IUnitRepository _unitRepository;
     private readonly ILogger<MatchingService>? _logger;
+    private readonly OnnxInferenceService? _onnxService;
     
     public MatchingService(
         IFingerprintEngine engine,
         IUnitRepository unitRepository,
-        ILogger<MatchingService>? logger = null)
+        ILogger<MatchingService>? logger = null,
+        OnnxInferenceService? onnxService = null)
     {
         _engine = engine;
         _unitRepository = unitRepository;
         _logger = logger;
+        _onnxService = onnxService;
     }
     
     /// <inheritdoc/>
@@ -159,5 +164,106 @@ public class MatchingService : IMatchingService
         var descriptor = _engine.ExtractDescriptor(stlPath);
         
         return await FindMatchesAsync(descriptor, topK);
+    }
+
+    // ========================================================================
+    // V2 ML PIPELINE PLUMBING TEST
+    // ========================================================================
+    public string TestV2MlPipeline(string testStlPath)
+    {
+        var sb = new System.Text.StringBuilder();
+
+        if (_onnxService == null)
+        {
+            var msg = "ERROR: OnnxInferenceService is not injected.";
+            _logger?.LogWarning(msg);
+            return msg;
+        }
+
+        try
+        {
+            sb.AppendLine($"[V2 ML TEST] Starting ONNX Pipeline Test on:\n{testStlPath}\n");
+
+            // 1. Load STL points
+            float[,] points = ParseStlVertices(testStlPath);
+            int numPoints = points.GetLength(0);
+            sb.AppendLine($"[STAGE 0] Parsed {numPoints} physical vertices from STL byte buffer.");
+
+            // 2. Stage 1: Backbone Feature Extraction
+            sb.AppendLine("[STAGE 1] Executing Backbone Feature Extraction (aum_backbone.onnx)...");
+            
+            var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+            float[] features = _onnxService.ExtractFeatures(points);
+            stopwatch.Stop();
+            
+            int featureCount = features.Length / 128;
+            sb.AppendLine($"          -> SUCCESS! Output Tensor Shape: [{featureCount}, 128]");
+            sb.AppendLine($"          -> Inference Time: {stopwatch.ElapsedMilliseconds} ms\n");
+
+            // 3. Stage 2: Matcher Verification
+            sb.AppendLine("[STAGE 2] Executing Matcher Cross-Attention (aum_matcher.onnx)...");
+            
+            // Clone source features to simulate a target hit
+            float[] targetFeatures = (float[])features.Clone();
+            
+            stopwatch.Restart();
+            var (sourceDesc, targetDesc) = _onnxService.VerifyMatch(features, featureCount, targetFeatures, featureCount);
+            stopwatch.Stop();
+            
+            sb.AppendLine($"          -> SUCCESS! Source Desc Length: {sourceDesc.Length}, Target Desc: {targetDesc.Length}");
+            sb.AppendLine($"          -> Inference Time: {stopwatch.ElapsedMilliseconds} ms\n");
+            
+            sb.AppendLine("=========== V2 ML PIPELINE ONNX INTEGRATION TEST PASSED! ===========");
+        }
+        catch (Exception ex)
+        {
+            sb.AppendLine($"\n[FATAL ERROR] V2 ML Pipeline ONNX Test Failed:\n{ex.Message}\n{ex.StackTrace}");
+            _logger?.LogError(ex, "V2 ML Pipeline ONNX Test Failed.");
+        }
+
+        return sb.ToString();
+    }
+
+    private float[,] ParseStlVertices(string stlPath)
+    {
+        // Extremely lightweight binary STL parser to feed the ONNX tensor
+        // MODIFICATION: Use a HashSet to deduplicate identical vertices, as 
+        // STL files naively define 3 discrete vertices per triangle regardless of connectivity.
+        using var stream = File.OpenRead(stlPath);
+        using var reader = new BinaryReader(stream);
+        
+        reader.ReadBytes(80); // Skip header
+        uint numTriangles = reader.ReadUInt32();
+        
+        var uniqueVertices = new HashSet<(float x, float y, float z)>();
+        
+        for (uint i = 0; i < numTriangles; i++)
+        {
+            reader.ReadSingle(); reader.ReadSingle(); reader.ReadSingle(); // Skip Normal
+            
+            for (int j = 0; j < 3; j++)
+            {
+                float x = reader.ReadSingle();
+                float y = reader.ReadSingle();
+                float z = reader.ReadSingle();
+                
+                // HashSet automatically ignores duplicates in O(1) time
+                uniqueVertices.Add((x, y, z));
+            }
+            reader.ReadUInt16(); // Skip attribute byte count
+        }
+        
+        // Convert Deduplicated HashSet back to flat 2D Array for Neural ingestion
+        float[,] points = new float[uniqueVertices.Count, 3];
+        int ptIdx = 0;
+        foreach (var v in uniqueVertices)
+        {
+            points[ptIdx, 0] = v.x;
+            points[ptIdx, 1] = v.y;
+            points[ptIdx, 2] = v.z;
+            ptIdx++;
+        }
+        
+        return points;
     }
 }

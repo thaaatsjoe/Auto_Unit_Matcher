@@ -20,32 +20,31 @@
     <PackageReference Include="Microsoft.Data.Sqlite" Version="8.0.0" />
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="8.0.0" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="8.0.0" />
+    <PackageReference Include="Microsoft.ML.OnnxRuntime" Version="1.24.2" />
+  </ItemGroup>
+
+  <!-- ML Models Output Preservation -->
+  <ItemGroup>
+    <Content Include="..\..\tools\v2_training\out\aum_backbone.onnx" Link="aum_backbone.onnx" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\..\tools\v2_training\out\aum_matcher.onnx" Link="aum_matcher.onnx" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <!-- Copy native DLL and dependencies to output on build -->
   <ItemGroup>
     <!-- Main engine DLL -->
-    <None Include="../AUM.Engine/build/Release/AUM.Engine.dll" 
-          CopyToOutputDirectory="PreserveNewest" 
-          Condition="Exists('../AUM.Engine/build/Release/AUM.Engine.dll')" />
+    <None Include="../AUM.Engine/build/bin/Release/AUM.Engine.dll" CopyToOutputDirectory="PreserveNewest" Condition="Exists('../AUM.Engine/build/bin/Release/AUM.Engine.dll')" />
     
     <!-- PCL dependencies -->
-    <None Include="../AUM.Engine/build/Release/pcl_*.dll" 
-          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="../AUM.Engine/build/bin/Release/pcl_*.dll" CopyToOutputDirectory="PreserveNewest" />
     
     <!-- FAISS dependency -->
-    <None Include="../AUM.Engine/build/Release/faiss.dll" 
-          CopyToOutputDirectory="PreserveNewest" 
-          Condition="Exists('../AUM.Engine/build/Release/faiss.dll')" />
+    <None Include="../AUM.Engine/build/bin/Release/faiss.dll" CopyToOutputDirectory="PreserveNewest" Condition="Exists('../AUM.Engine/build/bin/Release/faiss.dll')" />
     
     <!-- Other dependencies (BLAS, etc.) -->
-    <None Include="../AUM.Engine/build/Release/*.dll" 
-          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="../AUM.Engine/build/bin/Release/*.dll" CopyToOutputDirectory="PreserveNewest" />
     
     <!-- Migration SQL files -->
-    <None Include="Data/Migrations/*.sql" 
-          CopyToOutputDirectory="PreserveNewest" 
-          Link="Data/Migrations/%(Filename)%(Extension)" />
+    <None Include="Data/Migrations/*.sql" CopyToOutputDirectory="PreserveNewest" Link="Data/Migrations/%(Filename)%(Extension)" />
   </ItemGroup>
 
 </Project>

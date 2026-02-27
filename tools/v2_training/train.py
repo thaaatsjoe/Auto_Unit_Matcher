@@ -127,10 +127,12 @@ class PrecompiledTensorDataset(torch.utils.data.Dataset):
 def main():
     parser = argparse.ArgumentParser(description="AUM V2 GeoTransformer Training")
     parser.add_argument("--data_dir", type=str, default="/workspace/data_pt", help="Path to pre-compiled .pt dataset (NOT STL)")
+    parser.add_argument("--out_dir", type=str, default="/workspace/out", help="Path to save the trained GeoTransformer weights")
     parser.add_argument("--epochs", type=int, default=10, help="Number of training epochs")
     parser.add_argument("--batch_size", type=int, default=4, help="Physical batch size (4 fits comfortably inside 12GB)")
     parser.add_argument("--grad_accum", type=int, default=4, help="Gradient Accumulation steps to simulate batch_size=16")
     parser.add_argument("--num_workers", type=int, default=0, help="DataLoader Multi-processing workers (Must be 0 for .pt files to avoid IPC serialization delays)")
+    parser.add_argument("--resume_from", type=str, default=None, help="Path to a previous .pth checkpoint to resume training from")
     parser.add_argument("--lr", type=float, default=1e-4, help="Learning Rate")
     args = parser.parse_args()
     
@@ -175,6 +177,16 @@ def main():
 
     # Initialize Neural Network
     model = GeoTransformer(feature_dim=128).to(device)
+    
+    # Resume Checkpoint injection
+    if args.resume_from:
+        if os.path.exists(args.resume_from):
+            print(f"Loading previous weights from checkpoint: {args.resume_from}")
+            model.load_state_dict(torch.load(args.resume_from, map_location=device))
+            print("Successfully restored neural network state!")
+        else:
+            raise FileNotFoundError(f"Checkpoint file not found: {args.resume_from}")
+            
     total_params = sum(p.numel() for p in model.parameters())
     print(f"GeoTransformer Online. Parameters: {total_params:,}")
 
@@ -188,9 +200,20 @@ def main():
     # Mixed precision gradient scaler
     scaler = torch.cuda.amp.GradScaler()
 
+    # Calculate Resume Epoch Offset
+    start_epoch = 1
+    if args.resume_from and os.path.exists(args.resume_from):
+        try:
+            # Extract '2' from the end of 'aum_v2_epoch_2.pth'
+            basename = os.path.basename(args.resume_from)
+            start_epoch = int(basename.split('_')[-1].split('.')[0]) + 1
+            print(f"Resuming progress marker: Starting at Epoch {start_epoch} / {args.epochs}")
+        except Exception:
+            print("WARNING: Could not determine starting epoch from filename. Iteration will begin at 1 and may overwrite earlier backups.")
+
     # Main Loop
     print("\nStarting Training Loop...")
-    for epoch in range(1, args.epochs + 1):
+    for epoch in range(start_epoch, args.epochs + 1):
         loss = train_epoch(
             model=model, 
             dataloader=dataloader, 
@@ -208,7 +231,17 @@ def main():
             print(f"-> Peak VRAM usage this epoch: {vram_mb:.2f} MB")
             torch.cuda.reset_peak_memory_stats()
             
-    print("Training Completed Successfully.")
+        # Standard Checkpointing Backup (Save Every Epoch)
+        os.makedirs(args.out_dir, exist_ok=True)
+        checkpoint_path = os.path.join(args.out_dir, f"aum_v2_epoch_{epoch}.pth")
+        torch.save(model.state_dict(), checkpoint_path)
+        print(f"-> Network weights snapshot saved to {checkpoint_path}")
+            
+    # Final Neural Network Export
+    os.makedirs(args.out_dir, exist_ok=True)
+    final_model_path = os.path.join(args.out_dir, "aum_v2_model.pth")
+    torch.save(model.state_dict(), final_model_path)
+    print(f"\nTraining Completed Successfully. Final Model Saved to: {final_model_path}")
 
 if __name__ == "__main__":
     main()

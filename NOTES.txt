@@ -1,6 +1,7 @@
 
 START THE APP:
 dotnet run --project src\AUM.UI\AUM.UI.csproj -c Release --no-build
+dotnet run --project src\AUM.UI\AUM.UI.csproj
 
 
 
@@ -11,3 +12,7 @@ python tools/optimize_cpu.py
 
 kill training
 taskkill /F /IM python.exe
+
+
+WSL DATASET LOCATION:
+\\wsl.localhost\Ubuntu\home\AUM_Dataset

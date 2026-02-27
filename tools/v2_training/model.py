@@ -102,6 +102,47 @@ class KPConvLayer(nn.Module):
         
         return out
 
+import math
+
+class FlashAttentionLayer(nn.Module):
+    """
+    Replaces nn.MultiheadAttention with a memory-efficient PyTorch 2.0 natively fused algorithm.
+    Squashes the O(N^2) VRAM matrix instantiation down to O(N).
+    """
+    def __init__(self, embed_dim, num_heads=4):
+        super().__init__()
+        self.embed_dim = embed_dim
+        self.num_heads = num_heads
+        self.head_dim = embed_dim // num_heads
+        assert self.head_dim * num_heads == embed_dim, "embed_dim must be divisible by num_heads"
+
+        self.q_proj = nn.Linear(embed_dim, embed_dim)
+        self.k_proj = nn.Linear(embed_dim, embed_dim)
+        self.v_proj = nn.Linear(embed_dim, embed_dim)
+        self.out_proj = nn.Linear(embed_dim, embed_dim)
+
+    def forward(self, query, key, value, key_padding_mask=None):
+        B, seq_len_q, _ = query.shape
+        _, seq_len_k, _ = key.shape
+
+        q = self.q_proj(query).view(B, seq_len_q, self.num_heads, self.head_dim).transpose(1, 2)
+        k = self.k_proj(key).view(B, seq_len_k, self.num_heads, self.head_dim).transpose(1, 2)
+        v = self.v_proj(value).view(B, seq_len_k, self.num_heads, self.head_dim).transpose(1, 2)
+
+        # PyTorch 2.0 scaled_dot_product_attention expects float masks of shape [B, num_heads, seq_len_q, seq_len_k]
+        attn_mask = None
+        if key_padding_mask is not None:
+            # key_padding_mask is [B, seq_len_k] where True means ignore.
+            # Convert to float mask where ignored positions are -inf, others are 0.
+            attn_mask = torch.zeros((B, 1, 1, seq_len_k), device=query.device, dtype=query.dtype)
+            attn_mask.masked_fill_(key_padding_mask.view(B, 1, 1, seq_len_k), float('-inf'))
+
+        # Native Flash Attention / Memory Efficient Attention dispatch
+        with torch.backends.cuda.sdp_kernel(enable_flash=True, enable_math=False, enable_mem_efficient=True):
+            out = F.scaled_dot_product_attention(q, k, v, attn_mask=attn_mask, dropout_p=0.0)
+
+        out = out.transpose(1, 2).contiguous().view(B, seq_len_q, self.embed_dim)
+        return self.out_proj(out)
 
 class GeoTransformer(nn.Module):
     """
@@ -123,9 +164,8 @@ class GeoTransformer(nn.Module):
         self.proj0 = nn.Linear(3, 1)
         
         # 2. Global Transformer (Self & Cross Attention)
-        # Replaces raw self-attention with deep linear projections to save 75% VRAM
-        self.self_attn = nn.MultiheadAttention(embed_dim=feature_dim, num_heads=4, batch_first=True)
-        self.cross_attn = nn.MultiheadAttention(embed_dim=feature_dim, num_heads=4, batch_first=True)
+        self.self_attn = FlashAttentionLayer(embed_dim=feature_dim, num_heads=4)
+        self.cross_attn = FlashAttentionLayer(embed_dim=feature_dim, num_heads=4)
         
         self.norm1 = nn.LayerNorm(feature_dim)
         self.norm2 = nn.LayerNorm(feature_dim)
@@ -170,15 +210,15 @@ class GeoTransformer(nn.Module):
         pad_mask_t = ~mask_t
         
         # 3. Self-Attention (Understanding internal geometry)
-        self_s, _ = self.self_attn(seq_s, seq_s, seq_s, key_padding_mask=pad_mask_s)
-        self_t, _ = self.self_attn(seq_t, seq_t, seq_t, key_padding_mask=pad_mask_t)
+        self_s = self.self_attn(seq_s, seq_s, seq_s, key_padding_mask=pad_mask_s)
+        self_t = self.self_attn(seq_t, seq_t, seq_t, key_padding_mask=pad_mask_t)
         
         seq_s = self.norm1(seq_s + self_s)
         seq_t = self.norm1(seq_t + self_t)
         
         # 4. Cross-Attention (Information Exchange)
-        cross_s, _ = self.cross_attn(seq_s, seq_t, seq_t, key_padding_mask=pad_mask_t)
-        cross_t, _ = self.cross_attn(seq_t, seq_s, seq_s, key_padding_mask=pad_mask_s)
+        cross_s = self.cross_attn(seq_s, seq_t, seq_t, key_padding_mask=pad_mask_t)
+        cross_t = self.cross_attn(seq_t, seq_s, seq_s, key_padding_mask=pad_mask_s)
         
         seq_s = self.norm2(seq_s + cross_s)
         seq_t = self.norm2(seq_t + cross_t)

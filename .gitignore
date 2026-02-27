@@ -36,3 +36,6 @@ logs/
 
 # Training data
 TRAINING DATA/
+
+# Tools
+tools/libtorch/

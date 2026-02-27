@@ -1,32 +1,32 @@
-# Use official NVIDIA PyTorch image (Ampere-compatible + optimized)
-FROM nvcr.io/nvidia/pytorch:24.01-py3
+FROM pytorch/pytorch:2.2.0-cuda12.1-cudnn8-devel
 
-# Install system dependencies for Open3D, general graphics, and RTree
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    libgl1 \
-    libgomp1 \
-    libglib2.0-0 \
-    libspatialindex-dev \
-    && rm -rf /var/lib/apt/lists/*
+# ==============================================================================
+# PyTorch C++ ABI Alignment Note:
+# Do NOT use nvcr.io/nvidia/pytorch images here. NVIDIA NGC images compile PyTorch 
+# with _GLIBCXX_USE_CXX11_ABI=1. However, the pre-compiled PyTorch Geometric 
+# wheels (torch-cluster, etc.) are compiled against standard PyPI PyTorch with ABI=0.
+# Mixing them causes fatal `undefined symbol: _ZN5torch3jit...` crashes at runtime.
+# Using the official standard PyTorch base Docker image below aligns the ABIs (ABI=0).
+# ==============================================================================
 
-# Install point cloud processing libraries
-# open3d for standard format I/O (PLY)
-# trimesh for robust STL loading and surface sampling
-# scipy for spatial rotations
-# rtree for fast Trimesh exact BVH raycasting
-RUN pip install --no-cache-dir \
-    open3d==0.17.0 \
-    trimesh \
-    scipy \
-    tqdm \
-    rtree
-
-# Install basic PyTorch Geometric dependencies (for GeoTransformer/KPConv later)
-# Using wheels compatible with PyTorch 2.2.0 and CUDA 12.1 (which aligns with the 24.01 container)
-RUN pip install --no-cache-dir \
-    torch-scatter torch-sparse torch-cluster torch-spline-conv torch-geometric -f https://data.pyg.org/whl/torch-2.2.0+cu121.html
-
+ENV DEBIAN_FRONTEND=noninteractive
 WORKDIR /workspace
 
-# Keep container running or specify entrypoint
+# Install system dependencies required for Open3D and general compilation
+RUN apt-get update && apt-get install -y \
+    libgl1-mesa-glx \
+    libglib2.0-0 \
+    build-essential \
+    curl \
+    git \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install PyTorch Geometric wheels specifically compiled for vanilla PyTorch 2.2.0 + CUDA 12.1
+RUN pip install --no-cache-dir torch-scatter torch-sparse torch-cluster torch-spline-conv \
+    -f https://data.pyg.org/whl/torch-2.2.0+cu121.html
+
+# Install additional 3D processing and tracking libraries
+RUN pip install --no-cache-dir torch-geometric open3d trimesh wandb plotly
+
+# Default command
 CMD ["/bin/bash"]
